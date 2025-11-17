@@ -108,7 +108,9 @@ class EscposService {
    * Genera el ticket completo en ESC/POS
    */
   generateTicket(saleData, businessConfig, ticketConfig) {
-    const { sale, items, customer } = saleData
+    console.log('[ESC/POS] Generando ticket:', { saleId: saleData.sale.id })
+    
+    const { sale, items = [] } = saleData
     let ticket = ''
 
     // 1. Inicializar impresora
@@ -116,92 +118,96 @@ class EscposService {
 
     // 2. Encabezado - Nombre del negocio
     ticket += this.setAlignment(1) // Centro
-    if (ticketConfig.show_business_name !== false) {
+    if (ticketConfig.show_business_info !== false) {
       ticket += this.setBold(true)
-      ticket += this.printCenterLine(this.truncateText(businessConfig.business_name || 'VIEJO LOBO', 32))
+      ticket += this.setFontSize(2, 2)
+      ticket += this.printCenterLine(this.truncateText(businessConfig.business_name || 'VIEJO LOBO', 16))
+      ticket += this.setFontSize(1, 1)
       ticket += this.setBold(false)
     }
 
     // 3. Datos del negocio
-    if (ticketConfig.show_address && businessConfig.business_address) {
+    if (businessConfig.business_address) {
       ticket += this.printCenterLine(this.truncateText(businessConfig.business_address, 32))
     }
 
-    if (ticketConfig.show_phone && businessConfig.business_phone) {
-      ticket += this.printCenterLine(this.truncateText(businessConfig.business_phone, 32))
+    if (businessConfig.business_phone) {
+      ticket += this.printCenterLine('Tel: ' + this.truncateText(businessConfig.business_phone, 28))
     }
 
-    if (ticketConfig.show_email && businessConfig.business_email) {
+    if (businessConfig.business_email) {
       ticket += this.printCenterLine(this.truncateText(businessConfig.business_email, 32))
     }
 
     // 4. Separador
-    ticket += this.setAlignment(1)
     ticket += this.printSeparator(32)
 
     // 5. Información del ticket
     ticket += this.setAlignment(0) // Izquierda
+    ticket += this.setBold(true)
     ticket += this.printLine('TICKET #' + sale.id)
+    ticket += this.setBold(false)
     ticket += this.printLine('Fecha: ' + this.formatDate(sale.created_at))
     ticket += this.printLine('Hora: ' + this.formatTime(sale.created_at))
 
-    if (ticketConfig.show_salesperson && sale.salesperson) {
-      ticket += this.printLine('Vendedor: ' + sale.salesperson)
-    }
-
     // 6. Datos del cliente
-    if (customer && customer.customer_name) {
-      ticket += this.printLine('Cliente: ' + this.truncateText(customer.customer_name, 28))
+    if (sale.customer_name && sale.customer_name !== 'Consumidor Final') {
+      ticket += this.printLine('Cliente: ' + this.truncateText(sale.customer_name, 25))
     }
 
     // 7. Separador
     ticket += this.printSeparator(32)
 
     // 8. Encabezados de la tabla
+    ticket += this.setBold(true)
     ticket += this.printLine('DETALLE DE COMPRA')
+    ticket += this.setBold(false)
     ticket += this.printSeparator(32)
 
     // 9. Items
     for (const item of items) {
-      // Nombre del producto (truncado si es muy largo)
-      const productName = this.truncateText(item.product_name || 'Producto', 24)
+      // Nombre del producto
+      const productName = this.truncateText(item.product_name || 'Producto', 32)
       ticket += this.printLine(productName)
 
       // Cantidad x Precio = Subtotal
-      const qty = item.quantity || 1
-      const price = item.unit_price || 0
-      const subtotal = item.total_amount || 0
+      const qty = parseFloat(item.quantity || 1).toFixed(2)
+      const price = parseFloat(item.unit_price || 0)
+      const subtotal = parseFloat(item.subtotal || item.total_amount || 0)
 
-      const qtyStr = qty.toString().padStart(3)
-      const priceStr = this.formatCurrency(price).padStart(7)
-      const subtotalStr = this.formatCurrency(subtotal).padStart(7)
-
-      ticket += this.printLine(
-        'Cant: ' + qtyStr + ' x ' + priceStr + ' = ' + subtotalStr
-      )
+      const line = `${qty} x ${this.formatCurrency(price)}`
+      const subtotalStr = this.formatCurrency(subtotal)
+      const spacesNeeded = 32 - line.length - subtotalStr.length
+      const spaces = ' '.repeat(Math.max(1, spacesNeeded))
+      
+      ticket += this.printLine(line + spaces + subtotalStr)
     }
 
     // 10. Separador
     ticket += this.printSeparator(32)
 
     // 11. Totales
-    ticket += this.setBold(true)
-    const subtotalLine = 'Subtotal:' + ' '.repeat(23 - 'Subtotal:'.length - this.formatCurrency(sale.subtotal || 0).length) + this.formatCurrency(sale.subtotal || 0)
-    ticket += this.printLine(subtotalLine)
+    const subtotal = parseFloat(sale.subtotal || 0)
+    const total = parseFloat(sale.total || sale.total_amount || 0)
+    
+    ticket += this.printLineWithPrice('Subtotal:', this.formatCurrency(subtotal), 32)
 
-    if (ticketConfig.show_taxes && (sale.tax_amount || 0) > 0) {
-      const taxLine = 'Impuesto:' + ' '.repeat(23 - 'Impuesto:'.length - this.formatCurrency(sale.tax_amount || 0).length) + this.formatCurrency(sale.tax_amount || 0)
-      ticket += this.printLine(taxLine)
+    if (ticketConfig.show_tax_breakdown && (sale.tax || sale.tax_amount || 0) > 0) {
+      const tax = parseFloat(sale.tax || sale.tax_amount || 0)
+      ticket += this.printLineWithPrice('Impuesto:', this.formatCurrency(tax), 32)
     }
 
-    const totalLine = 'TOTAL:' + ' '.repeat(26 - 'TOTAL:'.length - this.formatCurrency(sale.total_amount || 0).length) + this.formatCurrency(sale.total_amount || 0)
-    ticket += this.printLine(totalLine)
+    ticket += this.setBold(true)
+    ticket += this.setFontSize(2, 2)
+    ticket += this.printLineWithPrice('TOTAL:', this.formatCurrency(total), 16)
+    ticket += this.setFontSize(1, 1)
     ticket += this.setBold(false)
 
     // 12. Forma de pago
     ticket += this.printSeparator(32)
     if (sale.payment_method) {
-      ticket += this.printLine('Forma de Pago: ' + sale.payment_method)
+      const paymentMethod = this.getPaymentMethodLabel(sale.payment_method)
+      ticket += this.printLine('Pago: ' + paymentMethod)
     }
 
     // 13. Mensaje de agradecimiento
@@ -215,27 +221,33 @@ class EscposService {
       }
     } else {
       ticket += this.printCenterLine('¡GRACIAS POR SU COMPRA!')
+      ticket += this.printCenterLine('Vuelva Pronto')
     }
     ticket += this.setBold(false)
 
-    // 14. Separador final
-    ticket += this.setAlignment(1)
-    ticket += this.printSeparator(32)
+    // 14. Saltos de línea para separar tickets
+    ticket += this.newLine(4)
 
-    // 15. Fecha y hora final (opcional)
-    if (ticketConfig.show_final_message) {
-      ticket += this.printCenterLine('Vuelva Pronto')
-    }
+    // 15. Corte de papel
+    ticket += this.cutPaper()
 
-    // 16. Saltos de línea para separar tickets
-    ticket += this.newLine(3)
-
-    // 17. Corte de papel (opcional)
-    if (ticketConfig.auto_cut) {
-      ticket += this.cutPaper()
-    }
-
+    console.log('[ESC/POS] Ticket generado correctamente, longitud:', ticket.length)
     return ticket
+  }
+
+  /**
+   * Get payment method label
+   */
+  getPaymentMethodLabel(method) {
+    const labels = {
+      'efectivo': 'Efectivo',
+      'tarjeta_credito': 'T. Crédito',
+      'tarjeta_debito': 'T. Débito',
+      'transferencia': 'Transferencia',
+      'cuenta_corriente': 'Cta. Corriente',
+      'multiple': 'Múltiple'
+    }
+    return labels[method] || method
   }
 
   /**

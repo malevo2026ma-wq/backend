@@ -227,7 +227,7 @@ export const updateTicketConfig = async (req, res) => {
           show_cashier, show_customer, show_payment_method, show_change,
           fiscal_type, show_tax_breakdown, include_cae,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
         [
           enable_print ?? true,
           auto_print ?? false,
@@ -357,7 +357,9 @@ export const getAllConfig = async (req, res) => {
 // Generar ESC/POS
 export const printTicketEscpos = async (req, res) => {
   try {
-    const { saleId, businessConfig, ticketConfig } = req.body
+    console.log('[TICKET] Solicitud de impresión ESC/POS:', req.body)
+    
+    const { saleId, businessConfig, ticketConfig, preview = false } = req.body
 
     // Validar que se proporcionaron los datos necesarios
     if (!saleId || !businessConfig || !ticketConfig) {
@@ -370,7 +372,7 @@ export const printTicketEscpos = async (req, res) => {
 
     // Obtener datos de la venta (incluir cliente e items)
     const saleQuery = `
-      SELECT s.*, c.customer_name, c.customer_phone 
+      SELECT s.*, c.name as customer_name, c.phone as customer_phone 
       FROM sales s 
       LEFT JOIN customers c ON s.customer_id = c.id 
       WHERE s.id = ?
@@ -387,12 +389,14 @@ export const printTicketEscpos = async (req, res) => {
 
     // Obtener items de la venta
     const itemsQuery = `
-      SELECT si.*, p.product_name 
+      SELECT si.*, p.name as product_name 
       FROM sale_items si 
       JOIN products p ON si.product_id = p.id 
       WHERE si.sale_id = ?
     `
     const items = await executeQuery(itemsQuery, [saleId])
+
+    console.log('[TICKET] Datos de venta obtenidos:', { saleId, itemsCount: items.length })
 
     // Preparar datos del ticket
     const ticketData = {
@@ -408,16 +412,32 @@ export const printTicketEscpos = async (req, res) => {
       ticketConfig
     )
 
+    if (preview) {
+      // Modo preview: devolver texto legible simplificado
+      const previewText = convertEscposToText(escposCommands)
+      return res.json({
+        success: true,
+        message: 'Vista previa generada',
+        data: {
+          previewText
+        }
+      })
+    }
+
     // Retornar los comandos como base64 para que el frontend pueda enviarlos a la impresora
+    const base64Commands = Buffer.from(escposCommands).toString('base64')
+    
+    console.log('[TICKET] Comandos ESC/POS generados, tamaño:', escposCommands.length, 'bytes')
+
     res.json({
       success: true,
       data: {
-        commands: Buffer.from(escposCommands).toString('base64'),
+        commands: base64Commands,
         message: "Comandos ESC/POS generados exitosamente"
       }
     })
   } catch (error) {
-    console.error("Error generando ESC/POS:", error)
+    console.error("[TICKET] Error generando ESC/POS:", error)
     res.status(500).json({
       success: false,
       message: "Error al generar comandos de impresión",
@@ -425,4 +445,18 @@ export const printTicketEscpos = async (req, res) => {
       error: error.message
     })
   }
+}
+
+function convertEscposToText(escposCommands) {
+  // Convertir comandos ESC/POS a texto legible para preview
+  let text = ''
+  for (let i = 0; i < escposCommands.length; i++) {
+    const charCode = escposCommands.charCodeAt(i)
+    if (charCode >= 32 && charCode <= 126) {
+      text += escposCommands.charAt(i)
+    } else if (charCode === 10) {
+      text += '\n'
+    }
+  }
+  return text
 }
