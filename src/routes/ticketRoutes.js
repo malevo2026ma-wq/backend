@@ -6,12 +6,11 @@ import {
   updateTicketConfig,
   getAllConfig
 } from "../controllers/ticket.controller.js"
-import { protect } from "../middleware/auth.js"
+import { authenticateToken } from "../middleware/auth.js"
 
 const router = express.Router()
 
-// Proteger todas las rutas
-router.use(protect)
+router.use(authenticateToken)
 
 // Rutas de configuración del negocio
 router.get("/business", getBusinessConfig)
