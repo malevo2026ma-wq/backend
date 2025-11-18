@@ -2,6 +2,7 @@ import express from "express"
 import cors from "cors"
 import dotenv from "dotenv"
 import { testConnection } from "./src/config/database.js"
+import printerService from "./src/services/printerService.js"
 
 // Importar rutas
 import authRoutes from "./src/routes/authRoutes.js"
@@ -230,14 +231,18 @@ const startServer = async () => {
       process.exit(1)
     }
 
+    console.log("🖨️ Inicializando servicio de impresora térmica...")
+    await printerService.initialize()
+    console.log("✅ Servicio de impresora inicializado")
+
     // Iniciar servidor
     const server = app.listen(PORT, () => {
       console.log("🚀 Servidor iniciado exitosamente")
       console.log(`📍 URL: http://localhost:${PORT}`)
       console.log(`🔗 API: http://localhost:${PORT}/api`)
       console.log(`💚 Health: http://localhost:${PORT}/api/health`)
-      console.log(`📊 Reports: http://localhost:${PORT}/api/reports`) // AGREGADO: Mostrar ruta de reportes
-      console.log(`🔗 Ticket: http://localhost:${PORT}/api/ticket`) // AGREGADO: Mostrar ruta de ticket
+      console.log(`📊 Reports: http://localhost:${PORT}/api/reports`)
+      console.log(`🖨️ Ticket: http://localhost:${PORT}/api/ticket`)
       console.log(`📊 Ambiente: ${process.env.NODE_ENV || "development"}`)
       console.log(`⏰ Iniciado: ${new Date().toISOString()}`)
     })
