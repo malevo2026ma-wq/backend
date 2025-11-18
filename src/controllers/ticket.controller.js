@@ -407,15 +407,17 @@ export const generateThermalPDF = async (req, res) => {
       // Nombre del negocio - centrado
       doc.font('Helvetica-Bold')
         .fontSize(fontSize.title)
+        .fillColor('#000000')
         .text(businessConfig.business_name || 'MI NEGOCIO', MARGIN_LEFT, yPosition, {
           width: CONTENT_WIDTH,
           align: 'center'
         })
-      yPosition = doc.y + 2 // Reducido espaciado
+      yPosition = doc.y + 2
 
       // Información del negocio
       doc.font('Helvetica')
-        .fontSize(fontSize.small) // Usar fuente más pequeña para info secundaria
+        .fontSize(fontSize.small)
+        .fillColor('#000000')
 
       if (businessConfig.business_address) {
         doc.text(businessConfig.business_address, MARGIN_LEFT, yPosition, {
@@ -455,12 +457,13 @@ export const generateThermalPDF = async (req, res) => {
       yPosition += 3
       doc.moveTo(MARGIN_LEFT, yPosition)
         .lineTo(THERMAL_WIDTH - MARGIN_RIGHT, yPosition)
-        .dash(1, { space: 1 }) // Líneas más delgadas
+        .dash(1, { space: 1 })
         .stroke()
       yPosition += 3
 
       doc.font('Helvetica')
         .fontSize(fontSize.small)
+        .fillColor('#000000')
         .text(ticketConfig.header_message, MARGIN_LEFT, yPosition, {
           width: CONTENT_WIDTH,
           align: 'center'
@@ -482,6 +485,7 @@ export const generateThermalPDF = async (req, res) => {
     // === TIPO FISCAL Y NÚMERO ===
     doc.font('Helvetica-Bold')
       .fontSize(fontSize.header)
+      .fillColor('#000000')
       .text(`${ticketConfig?.fiscal_type || 'TICKET'} #${saleData.sale.id}`, MARGIN_LEFT, yPosition, {
         width: CONTENT_WIDTH,
         align: 'center'
@@ -503,6 +507,7 @@ export const generateThermalPDF = async (req, res) => {
     
     doc.font('Helvetica')
       .fontSize(fontSize.small)
+      .fillColor('#000000')
       .text(`${dateStr} ${timeStr}`, MARGIN_LEFT, yPosition, {
         width: CONTENT_WIDTH,
         align: 'center'
@@ -522,6 +527,7 @@ export const generateThermalPDF = async (req, res) => {
       doc.undash()
         .font('Helvetica')
         .fontSize(fontSize.small)
+        .fillColor('#000000')
         .text(`Cliente: ${saleData.sale.customer_name}`, MARGIN_LEFT, yPosition, {
           width: CONTENT_WIDTH
         })
@@ -537,9 +543,10 @@ export const generateThermalPDF = async (req, res) => {
 
     // === INFORMACIÓN DEL CAJERO ===
     if (ticketConfig?.show_cashier && saleData.sale.cashier_name) {
-      doc.text(`Cajero: ${saleData.sale.cashier_name}`, MARGIN_LEFT, yPosition, {
-        width: CONTENT_WIDTH
-      })
+      doc.fillColor('#000000')
+        .text(`Cajero: ${saleData.sale.cashier_name}`, MARGIN_LEFT, yPosition, {
+          width: CONTENT_WIDTH
+        })
       yPosition = doc.y + 1
     }
 
@@ -555,9 +562,10 @@ export const generateThermalPDF = async (req, res) => {
     doc.undash()
       .font('Helvetica-Bold')
       .fontSize(fontSize.body)
+      .fillColor('#000000')
       .text('DETALLE DE COMPRA', MARGIN_LEFT, yPosition, {
         width: CONTENT_WIDTH,
-        align: 'left' // Alineado a la izquierda
+        align: 'left'
       })
     yPosition = doc.y + 2
 
@@ -568,7 +576,7 @@ export const generateThermalPDF = async (req, res) => {
     yPosition += 3
 
     // Items
-    doc.undash().font('Helvetica').fontSize(fontSize.small) // Fuente más pequeña
+    doc.undash().font('Helvetica').fontSize(fontSize.small).fillColor('#000000')
     
     for (const item of saleData.items) {
       const quantity = parseFloat(item.quantity)
@@ -578,6 +586,7 @@ export const generateThermalPDF = async (req, res) => {
 
       // Nombre del producto
       doc.font('Helvetica-Bold')
+        .fillColor('#000000')
         .text(item.product_name, MARGIN_LEFT, yPosition, {
           width: CONTENT_WIDTH
         })
@@ -585,6 +594,7 @@ export const generateThermalPDF = async (req, res) => {
 
       doc.font('Helvetica')
         .fontSize(fontSize.small)
+        .fillColor('#000000')
       
       const detailText = `${quantity} ${unit} x $${unitPrice.toFixed(2)}`
       const totalText = `$${totalPrice.toFixed(2)}`
@@ -621,6 +631,7 @@ export const generateThermalPDF = async (req, res) => {
 
     doc.font('Helvetica')
       .fontSize(fontSize.body)
+      .fillColor('#000000')
       .text('Subtotal', MARGIN_LEFT, yPosition, {
         width: CONTENT_WIDTH * 0.5,
         continued: true
@@ -633,14 +644,15 @@ export const generateThermalPDF = async (req, res) => {
 
     // Desglose de IVA
     if (ticketConfig?.show_tax_breakdown && tax > 0) {
-      doc.text('IVA (21%)', MARGIN_LEFT, yPosition, {
-        width: CONTENT_WIDTH * 0.5,
-        continued: true
-      })
-      .text(`$${tax.toFixed(2)}`, {
-        width: CONTENT_WIDTH * 0.5,
-        align: 'right'
-      })
+      doc.fillColor('#000000')
+        .text('IVA (21%)', MARGIN_LEFT, yPosition, {
+          width: CONTENT_WIDTH * 0.5,
+          continued: true
+        })
+        .text(`$${tax.toFixed(2)}`, {
+          width: CONTENT_WIDTH * 0.5,
+          align: 'right'
+        })
       yPosition = doc.y + 1
     }
 
@@ -658,6 +670,7 @@ export const generateThermalPDF = async (req, res) => {
     // TOTAL
     doc.font('Helvetica-Bold')
       .fontSize(fontSize.header)
+      .fillColor('#000000')
       .text('TOTAL:', MARGIN_LEFT, yPosition, {
         width: CONTENT_WIDTH * 0.5,
         continued: true
@@ -679,12 +692,13 @@ export const generateThermalPDF = async (req, res) => {
       doc.undash()
         .font('Helvetica')
         .fontSize(fontSize.small)
+        .fillColor('#000000')
 
       if (saleData.sale.payment_method === 'multiple' && saleData.sale.payment_methods_formatted) {
         doc.font('Helvetica-Bold').text('FORMAS DE PAGO:', MARGIN_LEFT, yPosition)
         yPosition = doc.y + 1
 
-        doc.font('Helvetica')
+        doc.font('Helvetica').fillColor('#000000')
         for (const pm of saleData.sale.payment_methods_formatted) {
           const methodLabels = {
             efectivo: 'Efectivo',
@@ -716,9 +730,10 @@ export const generateThermalPDF = async (req, res) => {
         }
         const methodLabel = methodLabels[saleData.sale.payment_method] || saleData.sale.payment_method
 
-        doc.text(`Forma de pago: ${methodLabel}`, MARGIN_LEFT, yPosition, {
-          width: CONTENT_WIDTH
-        })
+        doc.fillColor('#000000')
+          .text(`Forma de pago: ${methodLabel}`, MARGIN_LEFT, yPosition, {
+            width: CONTENT_WIDTH
+          })
         yPosition = doc.y + 2
       }
     }
@@ -735,16 +750,18 @@ export const generateThermalPDF = async (req, res) => {
       doc.undash()
         .font('Helvetica')
         .fontSize(fontSize.small)
+        .fillColor('#000000')
         .text(`CAE: ${saleData.sale.cae}`, MARGIN_LEFT, yPosition, {
           width: CONTENT_WIDTH,
           align: 'center'
         })
       yPosition = doc.y
 
-      doc.text(`Vto. CAE: ${saleData.sale.cae_expiration}`, MARGIN_LEFT, yPosition, {
-        width: CONTENT_WIDTH,
-        align: 'center'
-      })
+      doc.fillColor('#000000')
+        .text(`Vto. CAE: ${saleData.sale.cae_expiration}`, MARGIN_LEFT, yPosition, {
+          width: CONTENT_WIDTH,
+          align: 'center'
+        })
       yPosition = doc.y + 2
     }
 
@@ -762,6 +779,7 @@ export const generateThermalPDF = async (req, res) => {
 
       doc.font('Helvetica-Bold')
         .fontSize(fontSize.small)
+        .fillColor('#000000')
         .text('POLÍTICA DE DEVOLUCIONES', MARGIN_LEFT, yPosition, {
           width: CONTENT_WIDTH,
           align: 'center'
@@ -769,6 +787,7 @@ export const generateThermalPDF = async (req, res) => {
       yPosition = doc.y + 1
 
       doc.font('Helvetica')
+        .fillColor('#000000')
         .text(ticketConfig.return_policy, MARGIN_LEFT, yPosition, {
           width: CONTENT_WIDTH,
           align: 'center'
@@ -790,6 +809,7 @@ export const generateThermalPDF = async (req, res) => {
 
       doc.font('Helvetica')
         .fontSize(fontSize.small)
+        .fillColor('#000000')
         .text(ticketConfig.footer_message || businessConfig.business_footer_message, MARGIN_LEFT, yPosition, {
           width: CONTENT_WIDTH,
           align: 'center'
@@ -801,6 +821,7 @@ export const generateThermalPDF = async (req, res) => {
     if (businessConfig?.business_slogan) {
       doc.font('Helvetica-Oblique')
         .fontSize(fontSize.small)
+        .fillColor('#000000')
         .text(businessConfig.business_slogan, MARGIN_LEFT, yPosition, {
           width: CONTENT_WIDTH,
           align: 'center'
@@ -811,12 +832,15 @@ export const generateThermalPDF = async (req, res) => {
     if (businessConfig?.business_website) {
       doc.font('Helvetica')
         .fontSize(fontSize.small)
+        .fillColor('#000000')
         .text(businessConfig.business_website, MARGIN_LEFT, yPosition, {
           width: CONTENT_WIDTH,
           align: 'center'
         })
       yPosition = doc.y + 2
     }
+
+    yPosition += 30
 
     // Finalizar el documento
     doc.end()
