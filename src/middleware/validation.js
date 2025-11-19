@@ -109,7 +109,6 @@ export const validateCreateProduct = [
   body("cost").optional().isFloat({ min: 0 }).withMessage("El costo no puede ser negativo"),
   body("stock").optional().isFloat({ min: 0 }).withMessage("El stock no puede ser negativo"),
   body("min_stock").optional().isFloat({ min: 0 }).withMessage("El stock mínimo no puede ser negativo"),
-  body("category_id").optional().isInt({ min: 1 }).withMessage("La categoría debe ser válida"),
   body("image")
     .optional({ checkFalsy: true })
     .custom((value) => {
@@ -136,7 +135,6 @@ export const validateUpdateProduct = [
   body("price").isFloat({ min: 0.01 }).withMessage("El precio debe ser mayor a 0"),
   body("cost").optional().isFloat({ min: 0 }).withMessage("El costo no puede ser negativo"),
   body("min_stock").optional().isFloat({ min: 0 }).withMessage("El stock mínimo no puede ser negativo"),
-  body("category_id").optional().isInt({ min: 1 }).withMessage("La categoría debe ser válida"),
   body("image")
     .optional({ checkFalsy: true })
     .custom((value) => {
