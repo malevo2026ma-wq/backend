@@ -60,11 +60,13 @@ export const registerSaleInCash = async (saleId, totalAmount, paymentMethod, pay
   }
 }
 
-// Función auxiliar para formatear métodos de pago
+// FUNCIÓN CORREGIDA: Fixed formatPaymentMethods to handle objects and avoid JSON.parse errors
 const formatPaymentMethods = (sale) => {
   if (sale.payment_method === "multiple" && sale.payment_methods) {
     try {
-      const methods = JSON.parse(sale.payment_methods)
+      // Check if payment_methods is already an object or a string
+      const methods = typeof sale.payment_methods === "string" ? JSON.parse(sale.payment_methods) : sale.payment_methods
+
       return {
         ...sale,
         payment_methods_formatted: methods,
@@ -116,16 +118,7 @@ const validateCashOpen = async () => {
 // ACTUALIZADO: Obtener todas las ventas con paginación optimizada
 export const getSales = async (req, res) => {
   try {
-    const {
-      start_date,
-      end_date,
-      payment_method,
-      status,
-      customer_id,
-      search,
-      page = 1,
-      limit = 25,
-    } = req.query
+    const { start_date, end_date, payment_method, status, customer_id, search, page = 1, limit = 25 } = req.query
 
     let sql = `
     SELECT 
@@ -226,7 +219,7 @@ export const getSales = async (req, res) => {
     // Ejecutar consultas en paralelo para mejor performance
     const [countResult, sales] = await Promise.all([
       executeQuery(countSql, countParams),
-      executeQuery(`${sql} LIMIT ${limitNum} OFFSET ${offset}`, params)
+      executeQuery(`${sql} LIMIT ${limitNum} OFFSET ${offset}`, params),
     ])
 
     // Formatear métodos de pago para cada venta
@@ -271,7 +264,6 @@ export const getSaleById = async (req, res) => {
       })
     }
 
-    // Obtener datos de la venta con información de cancelación
     const salesQuery = `
     SELECT 
       s.*,
@@ -280,13 +272,10 @@ export const getSaleById = async (req, res) => {
       c.name as customer_name,
       c.email as customer_email,
       c.phone as customer_phone,
-      c.document_number as customer_document,
-      cancelled_user.name as cancelled_by_name,
-      cancelled_user.email as cancelled_by_email
+      c.document_number as customer_document
     FROM sales s
     LEFT JOIN users u ON s.user_id = u.id
     LEFT JOIN customers c ON s.customer_id = c.id
-    LEFT JOIN users cancelled_user ON s.cancelled_by = cancelled_user.id
     WHERE s.id = ?
   `
 
@@ -412,7 +401,7 @@ export const createSale = async (req, res) => {
       payment_methods,
       items_count: items?.length,
       total,
-      userId: req.user?.id
+      userId: req.user?.id,
     })
 
     // Validar que la caja esté abierta
@@ -1006,12 +995,15 @@ export const cancelSale = async (req, res) => {
 
     const saleId = Number.parseInt(id)
 
-    const saleQuery = await executeQuery(`
+    const saleQuery = await executeQuery(
+      `
       SELECT s.*, cs.status as session_status 
       FROM sales s
       LEFT JOIN cash_sessions cs ON s.cash_session_id = cs.id
       WHERE s.id = ? AND s.status = 'completed'
-    `, [saleId])
+    `,
+      [saleId],
+    )
 
     if (saleQuery.length === 0) {
       return res.status(404).json({
@@ -1031,10 +1023,11 @@ export const cancelSale = async (req, res) => {
       })
     }
 
-    if (sale.session_status !== 'open') {
+    if (sale.session_status !== "open") {
       return res.status(400).json({
         success: false,
-        message: "Solo se pueden cancelar ventas de la sesión de caja actual. Esta venta pertenece a una sesión cerrada.",
+        message:
+          "Solo se pueden cancelar ventas de la sesión de caja actual. Esta venta pertenece a una sesión cerrada.",
         code: "CASH_SESSION_CLOSED",
       })
     }
