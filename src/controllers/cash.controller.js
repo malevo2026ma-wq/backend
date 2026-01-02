@@ -1,9 +1,8 @@
 import { executeQuery, executeTransaction } from "../config/database.js"
 
-// CORREGIDO: Obtener estado actual de la caja SIN incluir ventas a cuenta corriente
 export const getCurrentCashStatus = async (req, res) => {
   try {
-    console.log("🔍 Obteniendo estado actual de caja...")
+    console.log("🔍 Obteniendo estado actual de caja (SIMPLIFICADO)...")
 
     if (req.get("Origin")) {
       res.header("Access-Control-Allow-Origin", req.get("Origin"))
@@ -50,7 +49,7 @@ export const getCurrentCashStatus = async (req, res) => {
     const session = openSession[0]
     console.log("✅ Sesión abierta encontrada:", session.id)
 
-    // CORREGIDO: Obtener movimientos EXCLUYENDO ventas a cuenta corriente
+    // Obtener todos los movimientos de la sesión
     let movements = []
     try {
       movements = await executeQuery(
@@ -65,226 +64,201 @@ export const getCurrentCashStatus = async (req, res) => {
         LEFT JOIN users u ON cm.user_id = u.id
         LEFT JOIN sales s ON cm.sale_id = s.id
         WHERE cm.cash_session_id = ?
-          AND NOT (cm.type = 'sale' AND cm.payment_method = 'cuenta_corriente')
-          AND NOT (cm.type = 'sale' AND cm.payment_method = 'credito')
         ORDER BY cm.created_at DESC
-        LIMIT 200
+        LIMIT 500
       `,
         [session.id],
       )
-      console.log("📝 Movimientos encontrados (sin ventas cta cte):", movements.length)
+      console.log("📝 Movimientos encontrados:", movements.length)
     } catch (movError) {
       console.error("⚠️ Error obteniendo movimientos:", movError)
       movements = []
     }
 
-    // CORREGIDO: Cálculo preciso separando efectivo físico de otros métodos
-    let physicalCashIncome = 0 // Solo efectivo que entra físicamente a la caja
-    let physicalCashExpenses = 0 // Solo efectivo que sale físicamente de la caja
-    let totalSalesCount = 0
+    let totalVentasEfectivo = 0
+    let totalVentasTarjeta = 0
+    let totalVentasTransferencia = 0
+    let totalPagosCuentaCorriente = 0 // Todos los métodos juntos
+    let totalDepositos = 0
+    let totalGastos = 0
+    let totalRetiros = 0
+    let totalCancelaciones = 0
+    let cantidadVentas = 0
 
-    // Separar por métodos de pago (SIN incluir cuenta corriente en ventas)
-    let salesCash = 0 // Solo ventas en efectivo (afecta caja física)
-    let salesCard = 0 // Solo ventas con tarjeta (NO afecta caja física)
-    let salesTransfer = 0 // Solo transferencias (NO afecta caja física)
+    let efectivoFisico = Number.parseFloat(session.opening_amount) || 0
 
-    // CORREGIDO: Separar pagos de cuenta corriente por método de pago
-    let deposits = 0 // Ingresos adicionales normales (afecta caja física)
-    let pagosCuentaCorrienteEfectivo = 0 // NUEVO: Pagos cuenta corriente en efectivo (afecta caja física)
-    let pagosCuentaCorrienteTarjeta = 0 // NUEVO: Pagos cuenta corriente con tarjeta (NO afecta caja física)
-    let pagosCuentaCorrienteTransferencia = 0 // NUEVO: Pagos cuenta corriente por transferencia (NO afecta caja física)
-    let withdrawals = 0 // Retiros (afecta caja física)
-    let expenses = 0 // Gastos (afecta caja física)
-
-    // CORREGIDO: Procesar movimientos de forma secuencial para manejar async correctamente
     for (const movement of movements) {
-      const amount = Number.parseFloat(movement.amount) || 0
+      const amount = Math.abs(Number.parseFloat(movement.amount) || 0)
 
       switch (movement.type) {
         case "opening":
         case "closing":
-          // Los movimientos de apertura y cierre no se cuentan en ingresos/gastos
+          // Ignorar movimientos de apertura/cierre en cálculos
           break
 
         case "sale":
-          totalSalesCount++
-
-          // CRÍTICO: Solo procesar ventas que NO sean cuenta corriente
+          cantidadVentas++
           switch (movement.payment_method) {
             case "efectivo":
-              salesCash += amount
-              physicalCashIncome += amount // Solo efectivo incrementa el dinero físico
+              totalVentasEfectivo += amount
+              efectivoFisico += amount
               break
             case "tarjeta_credito":
             case "tarjeta_debito":
             case "tarjeta":
-              salesCard += amount
-              // NO incrementa physicalCashIncome porque no es efectivo físico
+              totalVentasTarjeta += amount
               break
             case "transferencia":
             case "transfer":
-              salesTransfer += amount
-              // NO incrementa physicalCashIncome porque no es efectivo físico
+              totalVentasTransferencia += amount
               break
-            default:
-              console.warn(`⚠️ Método de pago no reconocido: ${movement.payment_method}`)
+            case "multiple":
+              // Para múltiples, necesitamos parsear el JSON
+              if (movement.sale_id) {
+                try {
+                  const saleData = await executeQuery("SELECT payment_methods FROM sales WHERE id = ?", [
+                    movement.sale_id,
+                  ])
+                  if (saleData.length > 0 && saleData[0].payment_methods) {
+                    const paymentMethods = JSON.parse(saleData[0].payment_methods)
+                    for (const pm of paymentMethods) {
+                      const pmAmount = Number.parseFloat(pm.amount) || 0
+                      switch (pm.method) {
+                        case "efectivo":
+                          totalVentasEfectivo += pmAmount
+                          efectivoFisico += pmAmount
+                          break
+                        case "tarjeta_credito":
+                        case "tarjeta_debito":
+                        case "tarjeta":
+                          totalVentasTarjeta += pmAmount
+                          break
+                        case "transferencia":
+                        case "transfer":
+                          totalVentasTransferencia += pmAmount
+                          break
+                      }
+                    }
+                  }
+                } catch (e) {
+                  console.warn("⚠️ Error parseando venta múltiple:", e)
+                }
+              }
               break
           }
           break
 
         case "deposit":
-          // CORREGIDO: Separar pagos de cuenta corriente por método de pago
-          if (movement.description && (
-            movement.description.toLowerCase().includes("cuenta corriente") ||
-            movement.description.toLowerCase().includes("pago cuenta") ||
-            movement.description.toLowerCase().includes("cta cte") ||
-            movement.description.toLowerCase().includes("cta. cte")
-          )) {
-            // Es un pago de cuenta corriente, separar por método
-            switch (movement.payment_method) {
-              case "efectivo":
-                pagosCuentaCorrienteEfectivo += amount
-                physicalCashIncome += amount // Solo efectivo afecta caja física
-                console.log(`💰 Pago cuenta corriente EFECTIVO: ${amount}`)
-                break
-              case "tarjeta_credito":
-              case "tarjeta_debito":
-              case "tarjeta":
-                pagosCuentaCorrienteTarjeta += amount
-                // NO afecta physicalCashIncome
-                console.log(`💳 Pago cuenta corriente TARJETA: ${amount}`)
-                break
-              case "transferencia":
-              case "transfer":
-                pagosCuentaCorrienteTransferencia += amount
-                // NO afecta physicalCashIncome
-                console.log(`🏦 Pago cuenta corriente TRANSFERENCIA: ${amount}`)
-                break
-              default:
-                // Si no se especifica método, asumir efectivo por compatibilidad
-                pagosCuentaCorrienteEfectivo += amount
-                physicalCashIncome += amount
-                console.log(`💰 Pago cuenta corriente (método no especificado, asumiendo efectivo): ${amount}`)
-                break
+          // Identificar si es pago de cuenta corriente o depósito normal
+          const isPagoCuentaCorriente =
+            movement.description &&
+            (movement.description.toLowerCase().includes("cuenta corriente") ||
+              movement.description.toLowerCase().includes("pago cuenta") ||
+              movement.description.toLowerCase().includes("cta cte") ||
+              movement.description.toLowerCase().includes("cta. cte"))
+
+          if (isPagoCuentaCorriente) {
+            totalPagosCuentaCorriente += amount
+            // Solo suma al efectivo físico si es en efectivo
+            if (movement.payment_method === "efectivo") {
+              efectivoFisico += amount
             }
           } else {
-            // Es un depósito normal
-            deposits += amount
-            physicalCashIncome += amount
-            console.log(`💰 Depósito normal: ${amount}`)
+            totalDepositos += amount
+            efectivoFisico += amount // Los depósitos siempre son efectivo
           }
           break
 
         case "withdrawal":
-          withdrawals += Math.abs(amount)
-          physicalCashExpenses += Math.abs(amount)
+          totalRetiros += amount
+          efectivoFisico -= amount
           break
 
         case "expense":
-          expenses += Math.abs(amount)
-          physicalCashExpenses += Math.abs(amount)
+          totalGastos += amount
+          efectivoFisico -= amount
           break
 
         case "cancellation":
-          // CORREGIDO: Para cancelaciones, restar correctamente según el método de pago
-          console.log(`🔄 Procesando cancelación: ${amount} para método ${movement.payment_method}`)
+          totalCancelaciones += amount
+          cantidadVentas = Math.max(0, cantidadVentas - 1)
 
-          // El amount de cancelación ya viene negativo desde la base de datos
-          const cancelAmount = Math.abs(amount) // Convertir a positivo para restar
-
+          // Restar del método correspondiente
           switch (movement.payment_method) {
             case "efectivo":
-              salesCash -= cancelAmount
-              physicalCashIncome -= cancelAmount
-              console.log(`💰 Cancelación efectivo: -${cancelAmount}, nuevo salesCash: ${salesCash}`)
+              totalVentasEfectivo -= amount
+              efectivoFisico -= amount
+              console.log(`💰 Cancelación efectivo: -$${amount} | Efectivo físico ahora: $${efectivoFisico}`)
               break
             case "tarjeta_credito":
             case "tarjeta_debito":
             case "tarjeta":
-              salesCard -= cancelAmount
-              console.log(`💳 Cancelación tarjeta: -${cancelAmount}, nuevo salesCard: ${salesCard}`)
+              totalVentasTarjeta -= amount
               break
             case "transferencia":
             case "transfer":
-              salesTransfer -= cancelAmount
-              console.log(`🏦 Cancelación transferencia: -${cancelAmount}, nuevo salesTransfer: ${salesTransfer}`)
+              totalVentasTransferencia -= amount
               break
             case "multiple":
-              // CORREGIDO: Para cancelaciones de pagos múltiples, obtener los detalles de la venta original
-              try {
-                if (movement.sale_id) {
-                  const originalSale = await executeQuery("SELECT payment_methods FROM sales WHERE id = ?", [movement.sale_id])
-                  if (originalSale.length > 0 && originalSale[0].payment_methods) {
-                    const paymentMethods = JSON.parse(originalSale[0].payment_methods)
+              if (movement.sale_id) {
+                try {
+                  const saleData = await executeQuery("SELECT payment_methods FROM sales WHERE id = ?", [
+                    movement.sale_id,
+                  ])
+                  if (saleData.length > 0 && saleData[0].payment_methods) {
+                    const paymentMethods = JSON.parse(saleData[0].payment_methods)
                     for (const pm of paymentMethods) {
                       const pmAmount = Number.parseFloat(pm.amount) || 0
                       switch (pm.method) {
                         case "efectivo":
-                          salesCash -= pmAmount
-                          physicalCashIncome -= pmAmount
+                          totalVentasEfectivo -= pmAmount
+                          efectivoFisico -= pmAmount
                           break
                         case "tarjeta_credito":
                         case "tarjeta_debito":
                         case "tarjeta":
-                          salesCard -= pmAmount
+                          totalVentasTarjeta -= pmAmount
                           break
                         case "transferencia":
                         case "transfer":
-                          salesTransfer -= pmAmount
+                          totalVentasTransferencia -= pmAmount
                           break
                       }
                     }
-                    console.log(`💳 Cancelación múltiple procesada: -${cancelAmount}`)
-                  } else {
-                    // Fallback: restar del efectivo por defecto
-                    salesCash -= cancelAmount
-                    physicalCashIncome -= cancelAmount
                   }
+                } catch (e) {
+                  console.warn("⚠️ Error parseando cancelación múltiple:", e)
                 }
-              } catch (parseError) {
-                console.warn("⚠️ Error procesando cancelación múltiple:", parseError)
-                // Fallback: restar del efectivo por defecto
-                salesCash -= cancelAmount
-                physicalCashIncome -= cancelAmount
               }
               break
-            default:
-              console.warn(`⚠️ Método de pago no reconocido en cancelación: ${movement.payment_method}`)
-              // Por defecto, restar del efectivo
-              salesCash -= cancelAmount
-              physicalCashIncome -= cancelAmount
-              break
           }
-
-          if (movement.sale_id) {
-            totalSalesCount = Math.max(0, totalSalesCount - 1)
-          }
-          break
-
-        default:
-          console.warn(`⚠️ Tipo de movimiento no reconocido: ${movement.type}`)
           break
       }
     }
 
-    // CRÍTICO: El efectivo actual = apertura + ingresos físicos - gastos físicos
-    const calculatedPhysicalCash = Number.parseFloat(session.opening_amount) + physicalCashIncome - physicalCashExpenses
+    const totalVentas = totalVentasEfectivo + totalVentasTarjeta + totalVentasTransferencia
+    const totalIngresosDia = totalVentas + totalPagosCuentaCorriente + totalDepositos
+    // Corregir cálculo de egresos totales para incluir cancelaciones
+    const totalEgresosDia = totalGastos + totalRetiros + totalCancelaciones
+    const gananciaNetaDia = totalIngresosDia - totalEgresosDia
 
-    console.log("💰 CÁLCULO DETALLADO DE EFECTIVO FÍSICO (CORREGIDO):")
-    console.log(`  - Apertura: ${session.opening_amount}`)
-    console.log(`  - Ingresos físicos totales: ${physicalCashIncome}`)
-    console.log(`    * Ventas efectivo: ${salesCash}`)
-    console.log(`    * Depósitos normales: ${deposits}`)
-    console.log(`    * Pagos cta cte EFECTIVO: ${pagosCuentaCorrienteEfectivo}`)
-    console.log(`  - Gastos físicos totales: ${physicalCashExpenses}`)
-    console.log(`    * Retiros: ${withdrawals}`)
-    console.log(`    * Gastos: ${expenses}`)
-    console.log(`  - EFECTIVO FÍSICO CALCULADO: ${calculatedPhysicalCash}`)
-    console.log(`  - OTROS MÉTODOS:`)
-    console.log(`    * Ventas tarjeta: ${salesCard}`)
-    console.log(`    * Ventas transferencia: ${salesTransfer}`)
-    console.log(`    * Pagos cta cte TARJETA: ${pagosCuentaCorrienteTarjeta}`)
-    console.log(`    * Pagos cta cte TRANSFERENCIA: ${pagosCuentaCorrienteTransferencia}`)
+    const totalGeneralCaja = Number.parseFloat(session.opening_amount) + totalIngresosDia - totalEgresosDia
+
+    console.log("💰 RESUMEN SIMPLIFICADO DEL DÍA:")
+    console.log(`  📈 Total Ingresos del Día: $${totalIngresosDia.toFixed(2)}`)
+    console.log(`    - Ventas totales: $${totalVentas.toFixed(2)}`)
+    console.log(`      * Efectivo: $${totalVentasEfectivo.toFixed(2)}`)
+    console.log(`      * Tarjeta: $${totalVentasTarjeta.toFixed(2)}`)
+    console.log(`      * Transferencia: $${totalVentasTransferencia.toFixed(2)}`)
+    console.log(`    - Pagos cuenta corriente: $${totalPagosCuentaCorriente.toFixed(2)}`)
+    console.log(`    - Depósitos: $${totalDepositos.toFixed(2)}`)
+    console.log(`  📉 Total Egresos: $${totalEgresosDia.toFixed(2)}`)
+    console.log(`    - Gastos: $${totalGastos.toFixed(2)}`)
+    console.log(`    - Retiros: $${totalRetiros.toFixed(2)}`)
+    console.log(`    - Cancelaciones: $${totalCancelaciones.toFixed(2)}`)
+    console.log(`  💵 Efectivo en Caja Física: $${efectivoFisico.toFixed(2)}`)
+    console.log(`  💼 Total General de Caja: $${totalGeneralCaja.toFixed(2)}`)
+    console.log(`  ✅ Ganancia Neta del Día: $${gananciaNetaDia.toFixed(2)}`)
 
     // Obtener configuración
     let settings = {
@@ -310,64 +284,51 @@ export const getCurrentCashStatus = async (req, res) => {
       console.error("⚠️ Error obteniendo configuración:", settingsError)
     }
 
-    // CORREGIDO: Respuesta con separación clara y TODOS los pagos de cuenta corriente registrados
     const responseData = {
       session: {
         ...session,
-        // CRÍTICO: calculated_amount es SOLO el efectivo físico esperado
-        calculated_amount: calculatedPhysicalCash,
+        // Efectivo físico en caja
+        efectivo_fisico: efectivoFisico,
+        calculated_amount: efectivoFisico, // Para compatibilidad
 
-        // Totales de efectivo físico
-        total_physical_income: physicalCashIncome,
-        total_physical_expenses: physicalCashExpenses,
-        total_sales: totalSalesCount,
+        total_general_caja: totalGeneralCaja,
 
-        // SEPARACIÓN CLARA: Por método de pago (SIN cuenta corriente en ventas)
-        sales_cash: salesCash, // Solo efectivo (afecta caja física)
-        sales_card: salesCard, // Solo tarjeta (NO afecta caja física)
-        sales_transfer: salesTransfer, // Solo transferencias (NO afecta caja física)
+        // Totales del día (simplificados)
+        total_ingresos_dia: totalIngresosDia,
+        total_egresos_dia: totalEgresosDia,
+        ganancia_neta_dia: gananciaNetaDia,
 
-        // CORREGIDO: Separar depósitos de pagos cuenta corriente por método
-        deposits: deposits, // Solo depósitos normales
-        pagos_cuenta_corriente_efectivo: pagosCuentaCorrienteEfectivo, // NUEVO: Pagos cta cte en efectivo
-        pagos_cuenta_corriente_tarjeta: pagosCuentaCorrienteTarjeta, // NUEVO: Pagos cta cte con tarjeta
-        pagos_cuenta_corriente_transferencia: pagosCuentaCorrienteTransferencia, // NUEVO: Pagos cta cte por transferencia
-        withdrawals: withdrawals,
-        expenses: expenses,
+        // Desglose de ventas por método (para referencia)
+        ventas_efectivo: totalVentasEfectivo,
+        ventas_tarjeta: totalVentasTarjeta,
+        ventas_transferencia: totalVentasTransferencia,
+        total_ventas: totalVentas,
 
-        // NUEVO: Total general de todos los métodos de pago procesados
-        total_general_amount: salesCash + salesCard + salesTransfer + pagosCuentaCorrienteEfectivo + pagosCuentaCorrienteTarjeta + pagosCuentaCorrienteTransferencia,
+        // Otros ingresos
+        pagos_cuenta_corriente: totalPagosCuentaCorriente,
+        depositos: totalDepositos,
 
-        // NUEVO: Total de pagos de cuenta corriente (todos los métodos)
-        total_pagos_cuenta_corriente: pagosCuentaCorrienteEfectivo + pagosCuentaCorrienteTarjeta + pagosCuentaCorrienteTransferencia,
+        // Egresos
+        gastos: totalGastos,
+        retiros: totalRetiros,
+        cancelaciones: totalCancelaciones,
+
+        // Información general
+        cantidad_ventas: cantidadVentas,
+        opening_amount: Number.parseFloat(session.opening_amount),
       },
       movements,
       settings,
     }
 
-    console.log("✅ Estado de caja calculado correctamente (TODOS LOS PAGOS CTA CTE REGISTRADOS)")
-    console.log("💰 Resumen CORREGIDO:", {
-      efectivo_fisico_esperado: calculatedPhysicalCash,
-      ventas_efectivo: salesCash,
-      ventas_tarjeta: salesCard,
-      ventas_transferencia: salesTransfer,
-      depositos_normales: deposits,
-      pagos_cta_cte_efectivo: pagosCuentaCorrienteEfectivo,
-      pagos_cta_cte_tarjeta: pagosCuentaCorrienteTarjeta,
-      pagos_cta_cte_transferencia: pagosCuentaCorrienteTransferencia,
-      total_pagos_cta_cte: pagosCuentaCorrienteEfectivo + pagosCuentaCorrienteTarjeta + pagosCuentaCorrienteTransferencia,
-      total_general: salesCash + salesCard + salesTransfer + pagosCuentaCorrienteEfectivo + pagosCuentaCorrienteTarjeta + pagosCuentaCorrienteTransferencia,
-      apertura: session.opening_amount,
-      ingresos_fisicos: physicalCashIncome,
-      gastos_fisicos: physicalCashExpenses,
-    })
+    console.log("✅ Estado de caja calculado correctamente (SIMPLIFICADO)")
 
     res.status(200).json({
       success: true,
       data: responseData,
     })
   } catch (error) {
-    console.error("💥 Error al obtener estado de caja:", error)
+    console.error("💥 Error getting cash status:", error)
     console.error("Stack trace:", error.stack)
 
     if (req.get("Origin")) {
@@ -478,80 +439,54 @@ export const openCash = async (req, res) => {
 // CORREGIDO: Cerrar caja con cálculos precisos SIN cuenta corriente
 export const closeCash = async (req, res) => {
   try {
-    const { physical_cash_amount, notes, compare_with_physical = false } = req.body
-    const userId = req.user?.id
+    const { closing_amount, expected_amount, closing_notes, bills, coins } = req.body
 
-    console.log("🔄 Iniciando cierre de caja...")
+    console.log("🚀 === INICIO CERRAR CAJA ===")
+    console.log("📝 Datos recibidos:", {
+      closing_amount,
+      expected_amount,
+      closing_notes,
+      userId: req.user?.id,
+    })
 
-    if (!userId) {
-      return res.status(401).json({
-        success: false,
-        message: "Usuario no autenticado",
-        code: "UNAUTHORIZED",
-      })
-    }
-
-    // Obtener sesión abierta
-    const openSession = await executeQuery(`
-      SELECT id, opening_amount FROM cash_sessions 
-      WHERE status = 'open' 
-      ORDER BY id DESC 
-      LIMIT 1
-    `)
-
-    if (openSession.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "No hay una caja abierta",
-        code: "NO_OPEN_CASH",
-      })
-    }
-
-    const sessionId = openSession[0].id
-    const openingAmount = Number.parseFloat(openSession[0].opening_amount)
-
-    console.log("✅ Sesión encontrada:", sessionId, "Monto apertura:", openingAmount)
-
-    // CORREGIDO: Calcular efectivo físico EXCLUYENDO ventas cuenta corriente
-    const movementsQuery = await executeQuery(
-      `
-      SELECT 
-        cm.type,
-        cm.payment_method,
-        cm.description,
-        SUM(cm.amount) as total_amount,
-        COUNT(*) as count
-      FROM cash_movements cm
-      WHERE cm.cash_session_id = ? 
-        AND cm.type IN ('sale', 'deposit', 'withdrawal', 'expense', 'cancellation')
-        AND NOT (cm.type = 'sale' AND cm.payment_method = 'cuenta_corriente')
-        AND NOT (cm.type = 'sale' AND cm.payment_method = 'credito')
-      GROUP BY cm.type, cm.payment_method, cm.description
-      ORDER BY cm.type, cm.payment_method
-    `,
-      [sessionId],
+    const currentSessionQuery = await executeQuery(
+      "SELECT * FROM cash_sessions WHERE status = 'open' ORDER BY opening_date DESC LIMIT 1",
     )
 
-    // CORREGIDO: Procesar solo movimientos que afectan efectivo físico
-    let physicalCashIncome = 0
-    let physicalCashExpenses = 0
+    if (currentSessionQuery.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No hay ninguna sesión de caja abierta para cerrar",
+      })
+    }
 
-    // Para reporte detallado
-    let salesCash = 0
-    let salesCard = 0
-    let salesTransfer = 0
-    let deposits = 0
-    let pagosCuentaCorrienteEfectivo = 0
-    let pagosCuentaCorrienteTarjeta = 0
-    let pagosCuentaCorrienteTransferencia = 0
-    let withdrawals = 0
-    let expenses = 0
+    const session = currentSessionQuery[0]
 
-    movementsQuery.forEach((row) => {
-      const amount = Number.parseFloat(row.total_amount) || 0
+    const movementsQuery = await executeQuery(
+      "SELECT * FROM cash_movements WHERE cash_session_id = ? ORDER BY created_at ASC",
+      [session.id],
+    )
+
+    console.log(`📊 Recalculando totales para el cierre...`)
+
+    let salesCash = 0,
+      salesCard = 0,
+      salesTransfer = 0,
+      salesAccountPayable = 0
+    let depositsCash = 0
+    let accountReceivablePayments = 0
+    let physicalCashIncome = Number.parseFloat(session.opening_amount) || 0
+    let totalWithdrawals = 0,
+      totalExpenses = 0,
+      totalCancellations = 0
+    let salesCount = 0
+
+    for (const row of movementsQuery) {
+      const amount = Math.abs(Number.parseFloat(row.amount) || 0)
 
       switch (row.type) {
         case "sale":
+          salesCount++
           switch (row.payment_method) {
             case "efectivo":
               salesCash += amount
@@ -561,278 +496,258 @@ export const closeCash = async (req, res) => {
             case "tarjeta_debito":
             case "tarjeta":
               salesCard += amount
-              // NO afecta physicalCashIncome
               break
             case "transferencia":
             case "transfer":
               salesTransfer += amount
-              // NO afecta physicalCashIncome
+              break
+            case "cuenta_corriente":
+              salesAccountPayable += amount
+              break
+            case "multiple":
+              if (row.sale_id) {
+                try {
+                  const saleData = await executeQuery("SELECT payment_methods FROM sales WHERE id = ?", [row.sale_id])
+                  if (saleData.length > 0 && saleData[0].payment_methods) {
+                    const methods = JSON.parse(saleData[0].payment_methods)
+                    for (const pm of methods) {
+                      const amt = Number.parseFloat(pm.amount) || 0
+                      switch (pm.method) {
+                        case "efectivo":
+                          salesCash += amt
+                          physicalCashIncome += amt
+                          break
+                        case "tarjeta_credito":
+                        case "tarjeta_debito":
+                        case "tarjeta":
+                          salesCard += amt
+                          break
+                        case "transferencia":
+                        case "transfer":
+                          salesTransfer += amt
+                          break
+                        case "cuenta_corriente":
+                          salesAccountPayable += amt
+                          break
+                      }
+                    }
+                  }
+                } catch (e) {
+                  console.warn("⚠️ Error parseando venta múltiple:", e)
+                }
+              }
               break
           }
           break
 
         case "deposit":
-          // CORREGIDO: Separar pagos cuenta corriente por método de pago
-          if (row.description && (
-            row.description.toLowerCase().includes("cuenta corriente") ||
-            row.description.toLowerCase().includes("pago cuenta") ||
-            row.description.toLowerCase().includes("cta cte") ||
-            row.description.toLowerCase().includes("cta. cte")
-          )) {
-            // Es un pago de cuenta corriente, separar por método
-            switch (row.payment_method) {
-              case "efectivo":
-                pagosCuentaCorrienteEfectivo += amount
-                physicalCashIncome += amount // Solo efectivo afecta caja física
-                break
-              case "tarjeta_credito":
-              case "tarjeta_debito":
-              case "tarjeta":
-                pagosCuentaCorrienteTarjeta += amount
-                // NO afecta physicalCashIncome
-                break
-              case "transferencia":
-              case "transfer":
-                pagosCuentaCorrienteTransferencia += amount
-                // NO afecta physicalCashIncome
-                break
-              default:
-                // Si no se especifica método, asumir efectivo por compatibilidad
-                pagosCuentaCorrienteEfectivo += amount
-                physicalCashIncome += amount
-                break
+          const isPagoCuentaCorriente =
+            row.description &&
+            (row.description.toLowerCase().includes("cuenta corriente") ||
+              row.description.toLowerCase().includes("pago cuenta") ||
+              row.description.toLowerCase().includes("cta cte") ||
+              row.description.toLowerCase().includes("cta. cte"))
+
+          if (isPagoCuentaCorriente) {
+            accountReceivablePayments += amount
+            if (row.payment_method === "efectivo") {
+              physicalCashIncome += amount
             }
           } else {
-            // Es un depósito normal
-            deposits += amount
+            depositsCash += amount
             physicalCashIncome += amount
           }
           break
 
         case "withdrawal":
-          withdrawals += Math.abs(amount)
-          physicalCashExpenses += Math.abs(amount)
+          totalWithdrawals += amount
+          physicalCashIncome -= amount
           break
 
         case "expense":
-          expenses += Math.abs(amount)
-          physicalCashExpenses += Math.abs(amount)
+          totalExpenses += amount
+          physicalCashIncome -= amount
           break
 
         case "cancellation":
-          // CORREGIDO: Para cancelaciones en cierre, restar correctamente
-          const cancelAmount = Math.abs(amount) // Convertir a positivo para restar
+          totalCancellations += amount
+          salesCount = Math.max(0, salesCount - 1)
 
           switch (row.payment_method) {
             case "efectivo":
-              salesCash -= cancelAmount
-              physicalCashIncome -= cancelAmount
-              console.log(`💰 Cancelación efectivo en cierre: -${cancelAmount}`)
+              salesCash -= amount
+              physicalCashIncome -= amount
+              console.log(`💰 Cancelación efectivo en cierre: -${amount}`)
               break
             case "tarjeta_credito":
             case "tarjeta_debito":
             case "tarjeta":
-              salesCard -= cancelAmount
-              console.log(`💳 Cancelación tarjeta en cierre: -${cancelAmount}`)
+              salesCard -= amount
+              console.log(`💳 Cancelación tarjeta en cierre: -${amount}`)
               break
             case "transferencia":
             case "transfer":
-              salesTransfer -= cancelAmount
-              console.log(`🏦 Cancelación transferencia en cierre: -${cancelAmount}`)
+              salesTransfer -= amount
+              console.log(`🏦 Cancelación transferencia en cierre: -${amount}`)
               break
             case "multiple":
-              // Para cancelaciones múltiples, distribuir la cancelación
-              // Nota: En el cierre no tenemos acceso fácil a los detalles, 
-              // pero el monto total ya está agregado correctamente
-              salesCash -= cancelAmount * 0.5 // Estimación conservadora
-              salesCard -= cancelAmount * 0.3
-              salesTransfer -= cancelAmount * 0.2
-              physicalCashIncome -= cancelAmount * 0.5
-              console.log(`💳 Cancelación múltiple en cierre (estimada): -${cancelAmount}`)
-              break
-            default:
-              // Por defecto, restar del efectivo
-              salesCash -= cancelAmount
-              physicalCashIncome -= cancelAmount
+              if (row.sale_id) {
+                try {
+                  const saleData = await executeQuery("SELECT payment_methods FROM sales WHERE id = ?", [row.sale_id])
+                  if (saleData.length > 0 && saleData[0].payment_methods) {
+                    const methods = JSON.parse(saleData[0].payment_methods)
+                    for (const pm of methods) {
+                      const amt = Number.parseFloat(pm.amount) || 0
+                      switch (pm.method) {
+                        case "efectivo":
+                          salesCash -= amt
+                          physicalCashIncome -= amt
+                          break
+                        case "tarjeta_credito":
+                        case "tarjeta_debito":
+                        case "tarjeta":
+                          salesCard -= amt
+                          break
+                        case "transferencia":
+                        case "transfer":
+                          salesTransfer -= amt
+                          break
+                      }
+                    }
+                  }
+                } catch (e) {
+                  console.warn("⚠️ Error parseando cancelación múltiple en cierre:", e)
+                }
+              }
               break
           }
           break
       }
-    })
-
-    // CRÍTICO: Solo el efectivo físico esperado
-    const expectedPhysicalCash = openingAmount + physicalCashIncome - physicalCashExpenses
-
-    console.log("💰 Cálculo de efectivo físico en cierre (CORREGIDO):", {
-      apertura: openingAmount,
-      ingresos_fisicos: physicalCashIncome,
-      gastos_fisicos: physicalCashExpenses,
-      efectivo_fisico_esperado: expectedPhysicalCash,
-      ventas_efectivo: salesCash,
-      ventas_otros_metodos: salesCard + salesTransfer,
-      depositos_normales: deposits,
-      pagos_cta_cte_efectivo: pagosCuentaCorrienteEfectivo,
-      pagos_cta_cte_otros: pagosCuentaCorrienteTarjeta + pagosCuentaCorrienteTransferencia,
-      total_pagos_cta_cte: pagosCuentaCorrienteEfectivo + pagosCuentaCorrienteTarjeta + pagosCuentaCorrienteTransferencia,
-    })
-
-    // Validar efectivo físico si se proporciona
-    let physical_amount = null
-    let difference = null
-
-    if (compare_with_physical && physical_cash_amount !== undefined) {
-      physical_amount = Number.parseFloat(physical_cash_amount)
-      if (isNaN(physical_amount) || physical_amount < 0) {
-        return res.status(400).json({
-          success: false,
-          message: "Monto de efectivo físico inválido",
-          code: "INVALID_PHYSICAL_AMOUNT",
-        })
-      }
-      difference = physical_amount - expectedPhysicalCash
     }
+
+    const totalSales = salesCash + salesCard + salesTransfer + salesAccountPayable
+    const totalIncome = totalSales + accountReceivablePayments + depositsCash
+    const totalOutcome = totalWithdrawals + totalExpenses + totalCancellations
+    const netProfit = totalIncome - totalOutcome
+    const totalGeneralCash = Number.parseFloat(session.opening_amount) + totalIncome - totalOutcome
+
+    const difference = Number.parseFloat(closing_amount) - physicalCashIncome
+
+    console.log("📊 TOTALES EN CIERRE:")
+    console.log(`  💵 Ventas Efectivo: $${salesCash}`)
+    console.log(`  💳 Ventas Tarjeta: $${salesCard}`)
+    console.log(`  🏦 Ventas Transferencia: $${salesTransfer}`)
+    console.log(`  💰 Efectivo Físico Calculado: $${physicalCashIncome}`)
+    console.log(`  💵 Efectivo Físico Contado: $${closing_amount}`)
+    console.log(`  📊 Diferencia: $${difference}`)
+    console.log(`  ✅ Total Ingresos: $${totalIncome}`)
+    console.log(`  ❌ Total Egresos: $${totalOutcome}`)
+    console.log(`  💎 Ganancia Neta: $${netProfit}`)
+    console.log(`  🏦 Total General Caja: $${totalGeneralCash}`)
 
     const queries = []
 
-    // 1. Cerrar sesión
+    // Actualizar sesión
     queries.push({
       query: `
-        UPDATE cash_sessions 
+        UPDATE cash_sessions
         SET 
           closing_amount = ?,
           expected_amount = ?,
           difference = ?,
+          closing_notes = ?,
           status = 'closed',
           closing_date = CURRENT_TIMESTAMP,
           closed_by = ?,
-          closing_notes = ?,
-          updated_at = CURRENT_TIMESTAMP
+          total_sales = ?,
+          total_cash_sales = ?,
+          total_card_sales = ?,
+          total_transfer_sales = ?,
+          total_deposits = ?,
+          total_withdrawals = ?,
+          total_expenses = ?,
+          sales_count = ?,
+          profit = ?
         WHERE id = ?
       `,
       params: [
-        physical_amount || expectedPhysicalCash,
-        expectedPhysicalCash,
+        closing_amount,
+        expected_amount || physicalCashIncome,
         difference,
-        userId,
-        notes || null,
-        sessionId,
+        closing_notes || null,
+        req.user?.id,
+        totalSales,
+        salesCash,
+        salesCard,
+        salesTransfer,
+        depositsCash + accountReceivablePayments,
+        totalWithdrawals,
+        totalExpenses,
+        salesCount,
+        netProfit,
+        session.id,
       ],
     })
 
-    // 2. Registrar arqueo con detalles mejorados
-    queries.push({
-      query: `
-        INSERT INTO cash_counts (
-          cash_session_id, expected_amount, counted_amount, difference,
-          bills, coins, notes, user_id, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-      `,
-      params: [
-        sessionId,
-        expectedPhysicalCash,
-        physical_amount || expectedPhysicalCash,
-        difference || 0,
-        JSON.stringify({}),
-        JSON.stringify({}),
-        JSON.stringify({
-          earnings_details: {
-            sales_cash: salesCash,
-            sales_card: salesCard,
-            sales_transfer: salesTransfer,
-            deposits: deposits,
-            pagos_cuenta_corriente_efectivo: pagosCuentaCorrienteEfectivo,
-            pagos_cuenta_corriente_tarjeta: pagosCuentaCorrienteTarjeta,
-            pagos_cuenta_corriente_transferencia: pagosCuentaCorrienteTransferencia,
-            total_pagos_cuenta_corriente: pagosCuentaCorrienteEfectivo + pagosCuentaCorrienteTarjeta + pagosCuentaCorrienteTransferencia,
-            withdrawals: withdrawals,
-            expenses: expenses,
-            total_general_amount: salesCash + salesCard + salesTransfer + pagosCuentaCorrienteEfectivo + pagosCuentaCorrienteTarjeta + pagosCuentaCorrienteTransferencia,
-            physical_cash_expected: expectedPhysicalCash,
-          },
-          compare_with_physical,
-          closing_notes: notes || null,
-        }),
-        userId,
-      ],
-    })
-
-    // 3. Registrar movimiento de cierre
+    // Registrar movimiento de cierre
     queries.push({
       query: `
         INSERT INTO cash_movements (
           cash_session_id, type, amount, description, user_id, created_at
         ) VALUES (?, 'closing', ?, ?, ?, CURRENT_TIMESTAMP)
       `,
-      params: [
-        sessionId,
-        physical_amount || expectedPhysicalCash,
-        `Cierre de caja - Efectivo físico: $${expectedPhysicalCash.toFixed(2)} - Total general: $${(salesCash + salesCard + salesTransfer + pagosCuentaCorrienteEfectivo + pagosCuentaCorrienteTarjeta + pagosCuentaCorrienteTransferencia).toFixed(2)}`,
-        userId,
-      ],
+      params: [session.id, closing_amount, `Cierre de caja. Diferencia: ${formatCurrency(difference)}`, req.user?.id],
     })
 
-    console.log("🔄 Ejecutando transacción de cierre...")
+    // Guardar arqueo si se proporcionó
+    if (bills && coins) {
+      queries.push({
+        query: `
+          INSERT INTO cash_counts (
+            cash_session_id, expected_amount, counted_amount, difference,
+            bills, coins, notes, user_id, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `,
+        params: [
+          session.id,
+          physicalCashIncome,
+          closing_amount,
+          difference,
+          JSON.stringify(bills),
+          JSON.stringify(coins),
+          closing_notes || null,
+          req.user?.id,
+        ],
+      })
+    }
+
     await executeTransaction(queries)
 
-    // Obtener sesión cerrada
-    const closedSession = await executeQuery(
-      `
-      SELECT 
-        cs.id, cs.opening_amount, cs.closing_amount,
-        cs.expected_amount, cs.difference, cs.status,
-        cs.opening_date, cs.closing_date,
-        cs.opened_by, cs.closed_by,
-        cs.opening_notes, cs.closing_notes,
-        cs.created_at, cs.updated_at,
-        u_open.name as opened_by_name,
-        u_close.name as closed_by_name
-      FROM cash_sessions cs
-      LEFT JOIN users u_open ON cs.opened_by = u_open.id
-      LEFT JOIN users u_close ON cs.closed_by = u_close.id
-      WHERE cs.id = ?
-    `,
-      [sessionId],
-    )
-
-    console.log("✅ Caja cerrada correctamente")
+    console.log("🎉 === CAJA CERRADA EXITOSAMENTE ===")
 
     res.json({
       success: true,
       message: "Caja cerrada correctamente",
       data: {
-        isOpen: false,
-        session: closedSession[0],
-        earnings_details: {
-          sales_cash: salesCash,
-          sales_card: salesCard,
-          sales_transfer: salesTransfer,
-          deposits: deposits,
-          pagos_cuenta_corriente_efectivo: pagosCuentaCorrienteEfectivo,
-          pagos_cuenta_corriente_tarjeta: pagosCuentaCorrienteTarjeta,
-          pagos_cuenta_corriente_transferencia: pagosCuentaCorrienteTransferencia,
-          total_pagos_cuenta_corriente: pagosCuentaCorrienteEfectivo + pagosCuentaCorrienteTarjeta + pagosCuentaCorrienteTransferencia,
-          withdrawals: withdrawals,
-          expenses: expenses,
-          total_general_amount: salesCash + salesCard + salesTransfer + pagosCuentaCorrienteEfectivo + pagosCuentaCorrienteTarjeta + pagosCuentaCorrienteTransferencia,
-          physical_cash_expected: expectedPhysicalCash,
-        },
-        expected_amount: expectedPhysicalCash,
-        physical_amount,
+        sessionId: session.id,
+        closing_amount,
+        expected_amount: physicalCashIncome,
         difference,
+        totalSales,
+        salesCount,
+        profit: netProfit,
       },
     })
   } catch (error) {
-    console.error("💥 Error al cerrar caja:", error)
-    console.error("Stack trace:", error.stack)
+    console.error("💥 Error cerrando caja:", error)
     res.status(500).json({
       success: false,
-      message: "Error interno del servidor",
-      code: "CASH_CLOSE_ERROR",
+      message: "Error al cerrar la caja",
+      error: error.message,
     })
   }
 }
 
-// Mantener el resto de las funciones del controlador original...
 export const getCashHistory = async (req, res) => {
   try {
     console.log("🔍 Obteniendo historial de caja...")
@@ -1336,4 +1251,281 @@ export const updateCashSettings = async (req, res) => {
       code: "SETTINGS_UPDATE_ERROR",
     })
   }
+}
+
+export const getSummary = async (req, res) => {
+  try {
+    const currentSessionQuery = await executeQuery(
+      "SELECT * FROM cash_sessions WHERE status = 'open' ORDER BY opening_date DESC LIMIT 1",
+    )
+
+    if (currentSessionQuery.length === 0) {
+      return res.json({
+        success: true,
+        data: {
+          isOpen: false,
+          message: "No hay ninguna sesión de caja abierta actualmente",
+        },
+      })
+    }
+
+    const session = currentSessionQuery[0]
+
+    const movementsQuery = await executeQuery(
+      `
+      SELECT cm.*, u.name as user_name
+      FROM cash_movements cm
+      LEFT JOIN users u ON cm.user_id = u.id
+      WHERE cm.cash_session_id = ?
+      ORDER BY cm.created_at ASC
+    `,
+      [session.id],
+    )
+
+    const movements = movementsQuery
+
+    console.log(`📊 Calculando totales para sesión ${session.id}...`)
+    console.log(`📋 Total de movimientos: ${movements.length}`)
+
+    let totalVentasEfectivo = 0
+    let totalVentasTarjeta = 0
+    let totalVentasTransferencia = 0
+    let totalPagosCuentaCorriente = 0
+    let totalDepositos = 0
+    let totalGastos = 0
+    let totalRetiros = 0
+    let totalCancelaciones = 0
+    let cantidadVentas = 0
+
+    let efectivoFisico = Number.parseFloat(session.opening_amount) || 0
+
+    for (const movement of movements) {
+      const amount = Number.parseFloat(movement.amount) || 0
+      const absAmount = Math.abs(amount)
+
+      switch (movement.type) {
+        case "opening":
+        case "closing":
+          // Ignorar movimientos de apertura/cierre en cálculos
+          break
+
+        case "sale":
+          cantidadVentas++
+          switch (movement.payment_method) {
+            case "efectivo":
+              totalVentasEfectivo += absAmount
+              efectivoFisico += absAmount
+              break
+            case "tarjeta_credito":
+            case "tarjeta_debito":
+            case "tarjeta":
+              totalVentasTarjeta += absAmount
+              break
+            case "transferencia":
+            case "transfer":
+              totalVentasTransferencia += absAmount
+              break
+            case "multiple":
+              // Para múltiples, necesitamos parsear el JSON
+              if (movement.sale_id) {
+                try {
+                  const saleData = await executeQuery("SELECT payment_methods FROM sales WHERE id = ?", [
+                    movement.sale_id,
+                  ])
+                  if (saleData.length > 0 && saleData[0].payment_methods) {
+                    const paymentMethods = JSON.parse(saleData[0].payment_methods)
+                    for (const pm of paymentMethods) {
+                      const pmAmount = Number.parseFloat(pm.amount) || 0
+                      switch (pm.method) {
+                        case "efectivo":
+                          totalVentasEfectivo += pmAmount
+                          efectivoFisico += pmAmount
+                          break
+                        case "tarjeta_credito":
+                        case "tarjeta_debito":
+                        case "tarjeta":
+                          totalVentasTarjeta += pmAmount
+                          break
+                        case "transferencia":
+                        case "transfer":
+                          totalVentasTransferencia += pmAmount
+                          break
+                      }
+                    }
+                  }
+                } catch (e) {
+                  console.warn("⚠️ Error parseando venta múltiple:", e)
+                }
+              }
+              break
+          }
+          break
+
+        case "deposit":
+          // Identificar si es pago de cuenta corriente o depósito normal
+          const isPagoCuentaCorriente =
+            movement.description &&
+            (movement.description.toLowerCase().includes("cuenta corriente") ||
+              movement.description.toLowerCase().includes("pago cuenta") ||
+              movement.description.toLowerCase().includes("cta cte") ||
+              movement.description.toLowerCase().includes("cta. cte"))
+
+          if (isPagoCuentaCorriente) {
+            totalPagosCuentaCorriente += absAmount
+            // Solo suma al efectivo físico si es en efectivo
+            if (movement.payment_method === "efectivo") {
+              efectivoFisico += absAmount
+            }
+          } else {
+            totalDepositos += absAmount
+            efectivoFisico += absAmount // Los depósitos siempre son efectivo
+          }
+          break
+
+        case "withdrawal":
+          totalRetiros += absAmount
+          efectivoFisico -= absAmount
+          break
+
+        case "expense":
+          totalGastos += absAmount
+          efectivoFisico -= absAmount
+          break
+
+        case "cancellation":
+          // IMPORTANTE: Las cancelaciones tienen monto negativo
+          // absAmount ya es positivo, lo usamos para restar de los totales
+          totalCancelaciones += absAmount
+          cantidadVentas = Math.max(0, cantidadVentas - 1)
+
+          // Restar del método correspondiente
+          switch (movement.payment_method) {
+            case "efectivo":
+              totalVentasEfectivo -= absAmount
+              efectivoFisico -= absAmount
+              console.log(`💰 Cancelación efectivo: -$${absAmount} | Efectivo físico ahora: $${efectivoFisico}`)
+              break
+            case "tarjeta_credito":
+            case "tarjeta_debito":
+            case "tarjeta":
+              totalVentasTarjeta -= absAmount
+              console.log(`💳 Cancelación tarjeta: -$${absAmount}`)
+              break
+            case "transferencia":
+            case "transfer":
+              totalVentasTransferencia -= absAmount
+              console.log(`🏦 Cancelación transferencia: -$${absAmount}`)
+              break
+            case "multiple":
+              if (movement.sale_id) {
+                try {
+                  const saleData = await executeQuery("SELECT payment_methods FROM sales WHERE id = ?", [
+                    movement.sale_id,
+                  ])
+                  if (saleData.length > 0 && saleData[0].payment_methods) {
+                    const paymentMethods = JSON.parse(saleData[0].payment_methods)
+                    for (const pm of paymentMethods) {
+                      const pmAmount = Number.parseFloat(pm.amount) || 0
+                      switch (pm.method) {
+                        case "efectivo":
+                          totalVentasEfectivo -= pmAmount
+                          efectivoFisico -= pmAmount
+                          break
+                        case "tarjeta_credito":
+                        case "tarjeta_debito":
+                        case "tarjeta":
+                          totalVentasTarjeta -= pmAmount
+                          break
+                        case "transferencia":
+                        case "transfer":
+                          totalVentasTransferencia -= pmAmount
+                          break
+                      }
+                    }
+                  }
+                } catch (e) {
+                  console.warn("⚠️ Error parseando cancelación múltiple:", e)
+                }
+              }
+              break
+          }
+          break
+      }
+    }
+
+    // Cálculos finales
+    const totalVentas = totalVentasEfectivo + totalVentasTarjeta + totalVentasTransferencia
+    const totalIngresosDia = totalVentas + totalPagosCuentaCorriente + totalDepositos
+    const totalEgresosDia = totalGastos + totalRetiros + totalCancelaciones
+    const gananciaNetaDia = totalIngresosDia - totalEgresosDia
+    const totalGeneralCaja = Number.parseFloat(session.opening_amount) + totalIngresosDia - totalEgresosDia
+
+    console.log("📊 TOTALES CALCULADOS:")
+    console.log(`  💵 Total Ventas Efectivo: $${totalVentasEfectivo}`)
+    console.log(`  💳 Total Ventas Tarjeta: $${totalVentasTarjeta}`)
+    console.log(`  🏦 Total Ventas Transferencia: $${totalVentasTransferencia}`)
+    console.log(`  📊 Total Ventas: $${totalVentas}`)
+    console.log(`  💰 Efectivo Físico en Caja: $${efectivoFisico}`)
+    console.log(`  ✅ Total Ingresos del Día: $${totalIngresosDia}`)
+    console.log(
+      `  ❌ Total Egresos del Día: $${totalEgresosDia} (Gastos: $${totalGastos}, Retiros: $${totalRetiros}, Cancelaciones: $${totalCancelaciones})`,
+    )
+    console.log(`  💎 Ganancia Neta: $${gananciaNetaDia}`)
+    console.log(`  🏦 Total General de Caja: $${totalGeneralCaja}`)
+
+    const responseData = {
+      session: {
+        ...session,
+        // Efectivo físico en caja
+        efectivo_fisico: efectivoFisico,
+        calculated_amount: efectivoFisico,
+
+        total_general_caja: totalGeneralCaja,
+
+        // Totales del día (simplificados)
+        total_ingresos_dia: totalIngresosDia,
+        total_egresos_dia: totalEgresosDia,
+        ganancia_neta_dia: gananciaNetaDia,
+
+        // Desglose de ventas por método (para referencia)
+        ventas_efectivo: totalVentasEfectivo,
+        ventas_tarjeta: totalVentasTarjeta,
+        ventas_transferencia: totalVentasTransferencia,
+        total_ventas: totalVentas,
+
+        // Otros ingresos
+        pagos_cuenta_corriente: totalPagosCuentaCorriente,
+        depositos: totalDepositos,
+
+        // Egresos
+        gastos: totalGastos,
+        retiros: totalRetiros,
+        cancelaciones: totalCancelaciones,
+
+        // Estadísticas
+        sales_count: cantidadVentas,
+      },
+      movements,
+      isOpen: true,
+    }
+
+    res.json({
+      success: true,
+      data: responseData,
+    })
+  } catch (error) {
+    console.error("💥 Error obteniendo resumen de caja:", error)
+    res.status(500).json({
+      success: false,
+      message: "Error al obtener el resumen de caja",
+      error: error.message,
+    })
+  }
+}
+
+function formatCurrency(amount) {
+  return new Intl.NumberFormat("es-AR", {
+    style: "currency",
+    currency: "ARS",
+  }).format(amount)
 }

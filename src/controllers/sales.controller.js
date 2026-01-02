@@ -999,7 +999,7 @@ export const createSale = async (req, res) => {
   }
 }
 
-// CORREGIDO: Cancelar venta con validación de sesión y tipo 'withdrawal'
+// CORREGIDO: Cancelar venta con validación de sesión y tipo 'cancellation'
 export const cancelSale = async (req, res) => {
   try {
     const { id } = req.params
@@ -1095,6 +1095,7 @@ export const cancelSale = async (req, res) => {
     // Preparar todas las queries para la transacción
     const queries = []
 
+    // 1. Actualizar estado de la venta
     queries.push({
       query: `
       UPDATE sales
@@ -1141,7 +1142,6 @@ export const cancelSale = async (req, res) => {
 
     // 4. Crear movimiento en caja para la cancelación
     try {
-      // La venta ya está asociada a una sesión, usar esa sesión
       const sessionId = sale.cash_session_id
 
       // Determinar si es pago múltiple o simple
@@ -1152,36 +1152,42 @@ export const cancelSale = async (req, res) => {
           const paymentMethods = JSON.parse(sale.payment_methods)
           console.log("💳 Procesando cancelación para múltiples métodos de pago:", paymentMethods)
 
-          // Crear movimiento de cancelación para cada método de pago
           for (const pm of paymentMethods) {
+            // IMPORTANTE: Monto NEGATIVO para cancelación (se devuelve dinero)
+            const cancellationAmount = -Math.abs(Number.parseFloat(pm.amount))
+
             queries.push({
               query: `
                 INSERT INTO cash_movements (
                   cash_session_id, type, amount, description, payment_method, sale_id, user_id, created_at
-                ) VALUES (?, 'withdrawal', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ) VALUES (?, 'cancellation', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
               `,
               params: [
                 sessionId,
-                -Math.abs(Number.parseFloat(pm.amount)), // Monto negativo para cancelación
-                `Cancelación Venta #${saleId} (${pm.method}) - ${reason}`,
+                cancellationAmount,
+                `Cancelación Venta #${saleId} - ${reason}`,
                 pm.method,
                 saleId,
                 req.user?.id || null,
               ],
             })
+
+            console.log(`💰 Cancelación ${pm.method}: ${cancellationAmount}`)
           }
         } catch (parseError) {
           console.warn("⚠️ Error parseando payment_methods para cancelación en caja:", parseError)
           // Crear movimiento general si no se puede parsear
+          const cancellationAmount = -Math.abs(Number.parseFloat(sale.total))
+
           queries.push({
             query: `
               INSERT INTO cash_movements (
                 cash_session_id, type, amount, description, payment_method, sale_id, user_id, created_at
-              ) VALUES (?, 'withdrawal', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+              ) VALUES (?, 'cancellation', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             `,
             params: [
               sessionId,
-              -Math.abs(Number.parseFloat(sale.total)), // Monto negativo
+              cancellationAmount,
               `Cancelación Venta #${saleId} - ${reason}`,
               "multiple",
               saleId,
@@ -1190,25 +1196,29 @@ export const cancelSale = async (req, res) => {
           })
         }
       } else {
-        // Pago simple
+        // Pago simple - MONTO NEGATIVO para cancelación
+        const cancellationAmount = -Math.abs(Number.parseFloat(sale.total))
+
         queries.push({
           query: `
             INSERT INTO cash_movements (
               cash_session_id, type, amount, description, payment_method, sale_id, user_id, created_at
-            ) VALUES (?, 'withdrawal', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ) VALUES (?, 'cancellation', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
           `,
           params: [
             sessionId,
-            -Math.abs(Number.parseFloat(sale.total)), // Monto negativo para cancelación
+            cancellationAmount,
             `Cancelación Venta #${saleId} - ${reason}`,
             sale.payment_method,
             saleId,
             req.user?.id || null,
           ],
         })
+
+        console.log(`💰 Cancelación ${sale.payment_method}: ${cancellationAmount}`)
       }
 
-      console.log("💰 Movimientos de caja preparados para cancelación con tipo 'withdrawal'")
+      console.log("💰 Movimientos de caja preparados para cancelación con tipo 'cancellation'")
     } catch (cashError) {
       console.warn("⚠️ Error preparando movimientos de cancelación en caja:", cashError)
     }
@@ -1268,7 +1278,7 @@ export const cancelSale = async (req, res) => {
 
     console.log("🎉 === VENTA CANCELADA EXITOSAMENTE ===")
     console.log("✅ Stock restaurado para", productStockInfo.length, "productos")
-    console.log("✅ Movimientos financieros revertidos con tipo 'withdrawal'")
+    console.log("✅ Movimientos financieros revertidos con tipo 'cancellation'")
     console.log("✅ Estado de venta actualizado con usuario y fecha de cancelación")
 
     res.json({
@@ -1287,9 +1297,9 @@ export const cancelSale = async (req, res) => {
     console.error("💥 Error al cancelar venta:", error)
     res.status(500).json({
       success: false,
-      message: "Error interno del servidor al cancelar la venta",
-      code: "SALE_CANCEL_ERROR",
-      details: error.message,
+      message: "Error al cancelar la venta",
+      error: error.message,
+      code: "CANCEL_ERROR",
     })
   }
 }
