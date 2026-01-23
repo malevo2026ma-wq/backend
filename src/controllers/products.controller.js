@@ -14,10 +14,11 @@ export const getTopSellingProducts = async (req, res) => {
         p.cost,
         p.stock,
         p.min_stock,
-        p.unit_type,
         p.category_id,
         p.barcode,
         p.image,
+        p.color,
+        p.size,
         p.active,
         p.created_at,
         p.updated_at,
@@ -32,7 +33,7 @@ export const getTopSellingProducts = async (req, res) => {
       LEFT JOIN sales s ON si.sale_id = s.id AND s.status = 'completed'
       WHERE p.active = TRUE
       GROUP BY p.id, p.name, p.description, p.price, p.cost, p.stock, 
-               p.min_stock, p.unit_type, p.category_id, p.barcode, p.image, 
+               p.min_stock, p.category_id, p.barcode, p.image, p.color, p.size,
                p.active, p.created_at, p.updated_at, c.name, c.color, c.icon
       ORDER BY total_sold DESC, sales_count DESC, p.name ASC
       LIMIT ${limit}
@@ -80,10 +81,11 @@ export const getProducts = async (req, res) => {
         p.cost,
         p.stock,
         p.min_stock,
-        p.unit_type,
         p.category_id,
         p.barcode,
         p.image,
+        p.color,
+        p.size,
         p.active,
         p.created_at,
         p.updated_at,
@@ -260,7 +262,8 @@ export const getStockMovements = async (req, res) => {
         sm.user_id,
         p.name as product_name,
         p.image as product_image,
-        p.unit_type as product_unit_type,
+        p.color as product_color,
+        p.size as product_size,
         u.name as user_name
       FROM stock_movements sm
       LEFT JOIN products p ON sm.product_id = p.id
@@ -409,7 +412,7 @@ export const getProductById = async (req, res) => {
 
 export const createProduct = async (req, res) => {
   try {
-    const { name, description, price, cost, stock, min_stock, category_id, barcode, image, unit_type } = req.body
+    const { name, description, price, cost, stock, min_stock, category_id, barcode, image, color, size } = req.body
 
     // Validaciones básicas
     if (!name || name.trim().length === 0) {
@@ -428,15 +431,12 @@ export const createProduct = async (req, res) => {
       })
     }
 
-    const validUnitTypes = ["unidades", "kg"]
-    const productUnitType = unit_type && validUnitTypes.includes(unit_type) ? unit_type : "unidades"
-
     const productPrice = Number.parseFloat(price)
     const productCost = Number.parseFloat(cost) || 0
 
     let productStock = 0
     if (stock !== undefined && stock !== null && stock !== "") {
-      productStock = Number.parseFloat(stock)
+      productStock = Number.parseInt(stock)
       if (isNaN(productStock) || productStock < 0) {
         return res.status(400).json({
           success: false,
@@ -445,17 +445,17 @@ export const createProduct = async (req, res) => {
         })
       }
 
-      if (productUnitType === "unidades" && !Number.isInteger(productStock)) {
+      if (!Number.isInteger(productStock)) {
         return res.status(400).json({
           success: false,
-          message: "Para productos por unidades, el stock debe ser un número entero",
+          message: "El stock debe ser un número entero",
           code: "INVALID_UNIT_STOCK",
         })
       }
     }
 
     const minStock =
-      min_stock !== undefined && min_stock !== null && min_stock !== "" ? Number.parseFloat(min_stock) : 10 // Valor por defecto
+      min_stock !== undefined && min_stock !== null && min_stock !== "" ? Number.parseInt(min_stock) : 10 // Valor por defecto
 
     if (isNaN(minStock) || minStock < 0) {
       return res.status(400).json({
@@ -465,10 +465,10 @@ export const createProduct = async (req, res) => {
       })
     }
 
-    if (productUnitType === "unidades" && !Number.isInteger(minStock)) {
+    if (!Number.isInteger(minStock)) {
       return res.status(400).json({
         success: false,
-        message: "Para productos por unidades, el stock mínimo debe ser un número entero",
+        message: "El stock mínimo debe ser un número entero",
         code: "INVALID_MIN_UNIT_STOCK",
       })
     }
@@ -511,8 +511,8 @@ export const createProduct = async (req, res) => {
     const insertSql = `
       INSERT INTO products (
         name, description, price, cost, stock, min_stock, category_id, 
-        barcode, image, unit_type, active, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+        barcode, image, color, size, active, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
     `
 
     const insertParams = [
@@ -523,9 +523,10 @@ export const createProduct = async (req, res) => {
       productStock,
       minStock,
       productCategoryId,
-      barcode?.trim() || null, // Sin restricción de longitud
+      barcode?.trim() || null,
       image?.trim() || null,
-      productUnitType,
+      color?.trim() || null,
+      size?.trim() || null,
       true,
     ]
 
@@ -571,7 +572,7 @@ export const createProduct = async (req, res) => {
 export const updateProduct = async (req, res) => {
   try {
     const { id } = req.params
-    const { name, description, price, cost, min_stock, category_id, barcode, image, active, unit_type } = req.body
+    const { name, description, price, cost, min_stock, category_id, barcode, image, active, color, size } = req.body
 
     if (!id || isNaN(Number.parseInt(id))) {
       return res.status(400).json({
@@ -606,10 +607,6 @@ export const updateProduct = async (req, res) => {
       })
     }
 
-    const validUnitTypes = ["unidades", "kg"]
-    const productUnitType =
-      unit_type && validUnitTypes.includes(unit_type) ? unit_type : existingProduct[0].unit_type || "unidades"
-
     const productPrice = Number.parseFloat(price)
     const productCost = Number.parseFloat(cost) || 0
 
@@ -619,7 +616,7 @@ export const updateProduct = async (req, res) => {
       if (min_stock === null || min_stock === "") {
         minStock = 10
       } else {
-        minStock = Number.parseFloat(min_stock)
+        minStock = Number.parseInt(min_stock)
         if (isNaN(minStock) || minStock < 0) {
           return res.status(400).json({
             success: false,
@@ -628,10 +625,10 @@ export const updateProduct = async (req, res) => {
           })
         }
 
-        if (productUnitType === "unidades" && !Number.isInteger(minStock)) {
+        if (!Number.isInteger(minStock)) {
           return res.status(400).json({
             success: false,
-            message: "Para productos por unidades, el stock mínimo debe ser un número entero",
+            message: "El stock mínimo debe ser un número entero",
             code: "INVALID_MIN_UNIT_STOCK",
           })
         }
@@ -679,7 +676,7 @@ export const updateProduct = async (req, res) => {
     const updateSql = `
       UPDATE products 
       SET name = ?, description = ?, price = ?, cost = ?, min_stock = ?, 
-          category_id = ?, barcode = ?, image = ?, unit_type = ?, active = ?, updated_at = NOW()
+          category_id = ?, barcode = ?, image = ?, color = ?, size = ?, active = ?, updated_at = NOW()
       WHERE id = ?
     `
 
@@ -690,9 +687,10 @@ export const updateProduct = async (req, res) => {
       productCost,
       minStock,
       productCategoryId,
-      barcode?.trim() || null, // Sin restricción de longitud
+      barcode?.trim() || null,
       image?.trim() || null,
-      productUnitType,
+      color?.trim() || null,
+      size?.trim() || null,
       productActive,
       Number.parseInt(id),
     ]
@@ -823,7 +821,7 @@ export const createStockMovement = async (req, res) => {
     }
 
     const productId = Number.parseInt(product_id)
-    const movementQuantity = Number.parseFloat(quantity)
+    const movementQuantity = Number.parseInt(quantity)
 
     const product = await executeQuery("SELECT * FROM products WHERE id = ? AND active = TRUE", [productId])
     if (product.length === 0) {
@@ -836,15 +834,15 @@ export const createStockMovement = async (req, res) => {
 
     const currentProduct = product[0]
 
-    if (currentProduct.unit_type === "unidades" && !Number.isInteger(movementQuantity)) {
+    if (!Number.isInteger(movementQuantity)) {
       return res.status(400).json({
         success: false,
-        message: "Para productos por unidades, la cantidad debe ser un número entero",
+        message: "La cantidad debe ser un número entero",
         code: "INVALID_UNIT_QUANTITY",
       })
     }
 
-    const previousStock = Number.parseFloat(currentProduct.stock)
+    const previousStock = Number.parseInt(currentProduct.stock)
     let newStock = 0
     let stockChange = 0
 
