@@ -102,7 +102,6 @@ export const getTopProducts = async (req, res) => {
 
     params.push(limit)
 
-    // ACTUALIZADO: Incluir unit_type y sales_count
     const topProducts = await executeQuery(
       `
       SELECT 
@@ -111,7 +110,6 @@ export const getTopProducts = async (req, res) => {
         p.image,
         p.cost,
         p.price,
-        p.unit_type,
         SUM(si.quantity) as quantity,
         COUNT(DISTINCT s.id) as sales_count,
         COALESCE(SUM(si.subtotal), 0) as revenue,
@@ -120,7 +118,7 @@ export const getTopProducts = async (req, res) => {
       JOIN sales s ON si.sale_id = s.id
       JOIN products p ON si.product_id = p.id
       ${dateFilter}
-      GROUP BY p.id, p.name, p.image, p.cost, p.price, p.unit_type
+      GROUP BY p.id, p.name, p.image, p.cost, p.price
       ORDER BY quantity DESC
         LIMIT ${limit}
     `,
@@ -299,17 +297,12 @@ export const getCategoryReport = async (req, res) => {
 
     const totalAmount = Number.parseFloat(totalResult.total_amount) || 1 // Evitar división por cero
 
-    // ACTUALIZADO: Incluir estadísticas por tipo de unidad
     const categoryData = await executeQuery(
       `
       SELECT 
         COALESCE(c.name, 'Sin categoría') as category,
         COUNT(DISTINCT p.id) as products,
         SUM(si.quantity) as quantity_sold,
-        SUM(CASE WHEN p.unit_type = 'kg' THEN si.quantity ELSE 0 END) as kg_sold,
-        SUM(CASE WHEN p.unit_type = 'unidades' THEN si.quantity ELSE 0 END) as units_sold,
-        COUNT(CASE WHEN p.unit_type = 'kg' THEN 1 END) as kg_products,
-        COUNT(CASE WHEN p.unit_type = 'unidades' THEN 1 END) as unit_products,
         COALESCE(SUM(si.subtotal), 0) as amount,
         ROUND((COALESCE(SUM(si.subtotal), 0) / ?) * 100, 1) as percentage
       FROM sale_items si
@@ -369,7 +362,6 @@ export const getInventoryReport = async (req, res) => {
       }
     }
 
-    // ACTUALIZADO: Incluir unit_type en el reporte de inventario
     const inventoryData = await executeQuery(
       `
       SELECT 
@@ -377,7 +369,6 @@ export const getInventoryReport = async (req, res) => {
         p.name as product,
         p.stock as currentStock,
         p.min_stock as minStock,
-        p.unit_type,
         c.name as category,
         p.price,
         p.cost,
@@ -405,22 +396,12 @@ export const getInventoryReport = async (req, res) => {
       params,
     )
 
-    // ACTUALIZADO: Calcular estadísticas del inventario por tipo de unidad
     const stats = {
       total_products: inventoryData.length,
       critical_items: inventoryData.filter((item) => item.stock_status === "critical").length,
       low_items: inventoryData.filter((item) => item.stock_status === "low").length,
       normal_items: inventoryData.filter((item) => item.stock_status === "normal").length,
       total_value: inventoryData.reduce((sum, item) => sum + (Number.parseFloat(item.inventory_value) || 0), 0),
-      // NUEVO: Estadísticas por tipo de unidad
-      unit_products: inventoryData.filter((item) => item.unit_type === "unidades").length,
-      kg_products: inventoryData.filter((item) => item.unit_type === "kg").length,
-      unit_value: inventoryData
-        .filter((item) => item.unit_type === "unidades")
-        .reduce((sum, item) => sum + (Number.parseFloat(item.inventory_value) || 0), 0),
-      kg_value: inventoryData
-        .filter((item) => item.unit_type === "kg")
-        .reduce((sum, item) => sum + (Number.parseFloat(item.inventory_value) || 0), 0),
     }
 
     res.json({

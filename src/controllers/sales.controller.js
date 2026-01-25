@@ -298,7 +298,6 @@ export const getSaleById = async (req, res) => {
       p.name as product_name,
       p.image as product_image,
       p.barcode as product_barcode,
-      p.unit_type as product_unit_type,
       c.name as category_name
     FROM sale_items si
     LEFT JOIN products p ON si.product_id = p.id
@@ -753,7 +752,7 @@ export const createSale = async (req, res) => {
     console.log("📦 Verificando stock de productos...")
     const productStockInfo = []
     for (const item of items) {
-      const productQuery = await executeQuery("SELECT id, name, stock, active, unit_type FROM products WHERE id = ?", [
+      const productQuery = await executeQuery("SELECT id, name, stock, active FROM products WHERE id = ?", [
         Number.parseInt(item.product_id),
       ])
 
@@ -791,7 +790,6 @@ export const createSale = async (req, res) => {
       productStockInfo.push({
         product_id: Number.parseInt(item.product_id),
         name: product.name,
-        unit_type: product.unit_type,
         current_stock: product.stock,
         quantity_sold: requestedQuantity,
         new_stock: product.stock - requestedQuantity,
@@ -966,8 +964,7 @@ export const createSale = async (req, res) => {
       si.*,
       p.name as product_name,
       p.image as product_image,
-      p.barcode as product_barcode,
-      p.unit_type as product_unit_type
+      p.barcode as product_barcode
     FROM sale_items si
     LEFT JOIN products p ON si.product_id = p.id
     WHERE si.sale_id = ?
@@ -1071,7 +1068,7 @@ export const cancelSale = async (req, res) => {
     // Obtener stock actual de productos y validar existencia
     const productStockInfo = []
     for (const item of itemsQuery) {
-      const productQuery = await executeQuery("SELECT id, name, stock, unit_type FROM products WHERE id = ?", [
+      const productQuery = await executeQuery("SELECT id, name, stock FROM products WHERE id = ?", [
         item.product_id,
       ])
 
@@ -1080,13 +1077,10 @@ export const cancelSale = async (req, res) => {
         productStockInfo.push({
           product_id: item.product_id,
           product_name: product.name,
-          unit_type: product.unit_type,
-          quantity: Number.parseFloat(item.quantity),
-          current_stock: Number.parseFloat(product.stock),
-          new_stock: Number.parseFloat(product.stock) + Number.parseFloat(item.quantity),
+          quantity: Number.parseInt(item.quantity),
+          current_stock: Number.parseInt(product.stock),
+          new_stock: Number.parseInt(product.stock) + Number.parseInt(item.quantity),
         })
-      } else {
-        console.warn(`⚠️ Producto ${item.product_id} no encontrado, omitiendo restauración de stock`)
       }
     }
 
@@ -1381,14 +1375,13 @@ export const getSalesStats = async (req, res) => {
       p.id,
       p.name,
       p.image,
-      p.unit_type,
       SUM(si.quantity) as total_sold,
       COALESCE(SUM(si.subtotal), 0) as total_revenue
     FROM sale_items si
     JOIN sales s ON si.sale_id = s.id
     JOIN products p ON si.product_id = p.id
     WHERE s.status = 'completed' ${dateFilter}
-    GROUP BY p.id, p.name, p.image, p.unit_type
+    GROUP BY p.id, p.name, p.image
     ORDER BY total_sold DESC
     LIMIT 10
   `,

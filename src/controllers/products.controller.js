@@ -913,10 +913,9 @@ export const createStockMovement = async (req, res) => {
     const newMovement = await executeQuery(
       `SELECT 
         sm.*,
-        p.name as product_name,
-        p.image as product_image,
-        p.unit_type as product_unit_type,
-        u.name as user_name
+      p.name as product_name,
+      p.image as product_image,
+      u.name as user_name
       FROM stock_movements sm
       LEFT JOIN products p ON sm.product_id = p.id
       LEFT JOIN users u ON sm.user_id = u.id
@@ -944,11 +943,10 @@ export const getStockAlerts = async (req, res) => {
     const sql = `
       SELECT 
         p.id,
-        p.name,
-        p.stock,
-        COALESCE(p.min_stock, 10) as min_stock,
-        p.unit_type,
-        c.name as category_name,
+      p.name,
+      p.stock,
+      p.min_stock,
+      c.name as category_name,
         CASE 
           WHEN p.stock = 0 THEN 'critical'
           WHEN p.stock <= COALESCE(p.min_stock, 10) THEN 'warning'
@@ -994,8 +992,6 @@ export const getStockStats = async (req, res) => {
       SUM(CASE WHEN active = TRUE THEN 1 ELSE 0 END) as active_products,
       SUM(CASE WHEN active = TRUE AND stock <= min_stock THEN 1 ELSE 0 END) as low_stock,
       SUM(CASE WHEN active = TRUE AND stock = 0 THEN 1 ELSE 0 END) as out_of_stock,
-      SUM(CASE WHEN active = TRUE AND unit_type = 'unidades' THEN 1 ELSE 0 END) as unit_products,
-      SUM(CASE WHEN active = TRUE AND unit_type = 'kg' THEN 1 ELSE 0 END) as kg_products,
       COALESCE(SUM(CASE WHEN active = TRUE THEN stock * price ELSE 0 END), 0) as total_inventory_value
     FROM products`)
 
@@ -1013,7 +1009,6 @@ export const getStockStats = async (req, res) => {
       p.name,
       p.stock,
       COALESCE(p.min_stock, 10) as min_stock,
-      p.unit_type,
       c.name as category_name,
       CASE 
         WHEN p.stock = 0 THEN 'critical'

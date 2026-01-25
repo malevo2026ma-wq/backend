@@ -579,10 +579,10 @@ export const generateThermalPDF = async (req, res) => {
     doc.undash().font('Helvetica-Bold').fontSize(fontSize.small).fillColor('#000000') // Color negro sólido
     
     for (const item of saleData.items) {
-      const quantity = parseFloat(item.quantity)
+      const quantity = parseInt(item.quantity)
       const unitPrice = parseFloat(item.unit_price)
       const totalPrice = quantity * unitPrice
-      const unit = item.product_unit_type === 'kg' ? 'kg' : 'un'
+      const unit = 'un'
 
       // Nombre del producto
       doc.font('Helvetica-Bold')

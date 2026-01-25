@@ -163,12 +163,11 @@ export const validateStockMovement = [
     .isFloat({ min: 0.001 })
     .withMessage("La cantidad debe ser mayor a 0")
     .custom(async (value, { req }) => {
-      // Validación adicional según el tipo de producto
+      // Validar que sea un entero positivo
       if (req.body.product_id) {
-        // Aquí podrías hacer una consulta a la BD para validar según unit_type
-        // Por ahora solo validamos que sea positivo
-        if (Number.parseFloat(value) <= 0) {
-          throw new Error("La cantidad debe ser mayor a 0")
+        const quantity = Number.parseInt(value)
+        if (!Number.isInteger(quantity) || quantity <= 0) {
+          throw new Error("La cantidad debe ser un número entero mayor a 0")
         }
       }
       return true
