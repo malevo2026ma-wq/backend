@@ -1,5 +1,4 @@
 import { executeQuery, executeTransaction } from "../config/database.js"
-import { cost } from "../config/constants.js" // Declare the cost variable
 
 // NUEVO: Obtener los 10 productos más vendidos para la interfaz de ventas
 export const getTopSellingProducts = async (req, res) => {
