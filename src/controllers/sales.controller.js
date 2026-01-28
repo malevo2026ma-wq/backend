@@ -89,6 +89,7 @@ const formatPaymentMethods = (sale) => {
 const getPaymentMethodLabel = (method) => {
   const labels = {
     efectivo: "Efectivo",
+    tarjeta_debito: "T. Débito",
     tarjeta_credito: "T. Crédito",
     transferencia: "Transferencia",
     cuenta_corriente: "Cta. Corriente",
@@ -149,7 +150,7 @@ export const getSales = async (req, res) => {
 
     // ACTUALIZADO: Validación para múltiples métodos de pago
     if (payment_method) {
-      if (["efectivo", "tarjeta_credito", "transferencia", "cuenta_corriente"].includes(payment_method)) {
+      if (["efectivo", "tarjeta_debito", "tarjeta_credito", "transferencia", "cuenta_corriente"].includes(payment_method)) {
         sql += ` AND (s.payment_method = ? OR JSON_SEARCH(s.payment_methods, 'one', ?) IS NOT NULL)`
         params.push(payment_method, payment_method)
       }
@@ -197,7 +198,7 @@ export const getSales = async (req, res) => {
     }
     if (
       payment_method &&
-      ["efectivo", "tarjeta_credito", "transferencia", "cuenta_corriente"].includes(payment_method)
+      ["efectivo", "tarjeta_debito", "tarjeta_credito", "transferencia", "cuenta_corriente"].includes(payment_method)
     ) {
       countSql += ` AND (s.payment_method = ? OR JSON_SEARCH(s.payment_methods, 'one', ?) IS NOT NULL)`
       countParams.push(payment_method, payment_method)
@@ -446,7 +447,7 @@ export const createSale = async (req, res) => {
 
       // Validar cada método de pago
       for (const pm of payment_methods) {
-        if (!["efectivo", "tarjeta_credito", "transferencia", "cuenta_corriente"].includes(pm.method)) {
+        if (!["efectivo", "tarjeta_debito", "tarjeta_credito", "transferencia", "cuenta_corriente"].includes(pm.method)) {
           return res.status(400).json({
             success: false,
             message: `Método de pago inválido: ${pm.method}`,
@@ -466,7 +467,7 @@ export const createSale = async (req, res) => {
       // Validación para pago simple
       if (
         !payment_method ||
-        !["efectivo", "tarjeta_credito", "transferencia", "cuenta_corriente"].includes(payment_method)
+        !["efectivo", "tarjeta_debito", "tarjeta_credito", "transferencia", "cuenta_corriente"].includes(payment_method)
       ) {
         console.log("❌ Error: Método de pago inválido")
         return res.status(400).json({

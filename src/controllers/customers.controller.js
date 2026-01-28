@@ -719,13 +719,13 @@ export const createAccountTransaction = async (req, res) => {
       })
     }
 
-    // ACTUALIZADO: Validar método de pago para pagos (solo los 3 métodos especificados)
+    // ACTUALIZADO: Validar método de pago para pagos (efectivo, transferencia, tarjeta_credito, tarjeta_debito)
     if (type === "pago") {
-      const validPaymentMethods = ["efectivo", "transferencia", "tarjeta_credito"]
+      const validPaymentMethods = ["efectivo", "transferencia", "tarjeta_credito", "tarjeta_debito"]
       if (!validPaymentMethods.includes(payment_method)) {
         return res.status(400).json({
           success: false,
-          message: "Método de pago inválido. Métodos válidos: efectivo, transferencia, tarjeta_credito",
+          message: "Método de pago inválido. Métodos válidos: efectivo, transferencia, tarjeta_credito, tarjeta_debito",
           code: "INVALID_PAYMENT_METHOD",
         })
       }

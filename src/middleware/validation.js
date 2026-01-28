@@ -206,7 +206,7 @@ export const validateCreateSale = [
   // NUEVO: Validación condicional para pago simple o múltiple
   body("payment_method")
     .optional()
-    .isIn(["efectivo", "tarjeta_credito", "transferencia", "cuenta_corriente", "multiple"])
+    .isIn(["efectivo", "tarjeta_debito", "tarjeta_credito", "transferencia", "cuenta_corriente", "multiple"])
     .withMessage("Método de pago inválido"),
 
   // NUEVO: Validación para múltiples métodos de pago
@@ -217,7 +217,7 @@ export const validateCreateSale = [
 
   body("payment_methods.*.method")
     .optional()
-    .isIn(["efectivo", "tarjeta_credito", "transferencia", "cuenta_corriente"])
+    .isIn(["efectivo", "tarjeta_debito", "tarjeta_credito", "transferencia", "cuenta_corriente"])
     .withMessage("Método de pago múltiple inválido"),
 
   body("payment_methods.*.amount")
@@ -244,14 +244,17 @@ export const validateCreateSale = [
     const { payment_method, payment_methods } = body
 
     // Si hay payment_methods, debe ser un array válido
-    if (payment_methods && Array.isArray(payment_methods)) {
+      if (payment_methods && Array.isArray(payment_methods)) {
       if (payment_methods.length === 0) {
         throw new Error("Los métodos de pago múltiples no pueden estar vacíos")
       }
 
       // Validar que cada método tenga los campos requeridos
-      for (const pm of payment_methods) {
-        if (!pm.method || !["efectivo", "tarjeta_credito", "transferencia", "cuenta_corriente"].includes(pm.method)) {
+        for (const pm of payment_methods) {
+          if (
+            !pm.method ||
+            !["efectivo", "tarjeta_debito", "tarjeta_credito", "transferencia", "cuenta_corriente"].includes(pm.method)
+          ) {
           throw new Error("Cada método de pago múltiple debe tener un método válido")
         }
         if (!pm.amount || isNaN(Number.parseFloat(pm.amount)) || Number.parseFloat(pm.amount) <= 0) {
@@ -263,11 +266,11 @@ export const validateCreateSale = [
       if (payment_method && payment_method !== "multiple") {
         throw new Error("Para pagos múltiples, payment_method debe ser 'multiple' o no estar presente")
       }
-    } else {
+      } else {
       // Si no hay payment_methods, debe haber payment_method válido
       if (
         !payment_method ||
-        !["efectivo", "tarjeta_credito", "transferencia", "cuenta_corriente"].includes(payment_method)
+        !["efectivo", "tarjeta_debito", "tarjeta_credito", "transferencia", "cuenta_corriente"].includes(payment_method)
       ) {
         throw new Error("Se requiere un método de pago válido para pago simple")
       }
