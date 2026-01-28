@@ -76,7 +76,8 @@ export const getCurrentCashStatus = async (req, res) => {
     }
 
     let totalVentasEfectivo = 0
-    let totalVentasTarjeta = 0
+    let totalVentasTarjetaCredito = 0
+    let totalVentasTarjetaDebito = 0
     let totalVentasTransferencia = 0
     let totalPagosCuentaCorriente = 0 // Todos los métodos juntos
     let totalDepositos = 0
@@ -104,9 +105,11 @@ export const getCurrentCashStatus = async (req, res) => {
               efectivoFisico += amount
               break
             case "tarjeta_credito":
-            case "tarjeta_debito":
             case "tarjeta":
-              totalVentasTarjeta += amount
+              totalVentasTarjetaCredito += amount
+              break
+            case "tarjeta_debito":
+              totalVentasTarjetaDebito += amount
               break
             case "transferencia":
             case "transfer":
@@ -129,9 +132,11 @@ export const getCurrentCashStatus = async (req, res) => {
                           efectivoFisico += pmAmount
                           break
                         case "tarjeta_credito":
-                        case "tarjeta_debito":
                         case "tarjeta":
-                          totalVentasTarjeta += pmAmount
+                          totalVentasTarjetaCredito += pmAmount
+                          break
+                        case "tarjeta_debito":
+                          totalVentasTarjetaDebito += pmAmount
                           break
                         case "transferencia":
                         case "transfer":
@@ -191,9 +196,11 @@ export const getCurrentCashStatus = async (req, res) => {
               console.log(`💰 Cancelación efectivo: -$${amount} | Efectivo físico ahora: $${efectivoFisico}`)
               break
             case "tarjeta_credito":
-            case "tarjeta_debito":
             case "tarjeta":
-              totalVentasTarjeta -= amount
+              totalVentasTarjetaCredito -= amount
+              break
+            case "tarjeta_debito":
+              totalVentasTarjetaDebito -= amount
               break
             case "transferencia":
             case "transfer":
@@ -215,9 +222,11 @@ export const getCurrentCashStatus = async (req, res) => {
                           efectivoFisico -= pmAmount
                           break
                         case "tarjeta_credito":
-                        case "tarjeta_debito":
                         case "tarjeta":
-                          totalVentasTarjeta -= pmAmount
+                          totalVentasTarjetaCredito -= pmAmount
+                          break
+                        case "tarjeta_debito":
+                          totalVentasTarjetaDebito -= pmAmount
                           break
                         case "transferencia":
                         case "transfer":
@@ -236,6 +245,7 @@ export const getCurrentCashStatus = async (req, res) => {
       }
     }
 
+    const totalVentasTarjeta = totalVentasTarjetaCredito + totalVentasTarjetaDebito
     const totalVentas = totalVentasEfectivo + totalVentasTarjeta + totalVentasTransferencia
     const totalIngresosDia = totalVentas + totalPagosCuentaCorriente + totalDepositos
     // Corregir cálculo de egresos totales para incluir cancelaciones
@@ -248,7 +258,8 @@ export const getCurrentCashStatus = async (req, res) => {
     console.log(`  📈 Total Ingresos del Día: $${totalIngresosDia.toFixed(2)}`)
     console.log(`    - Ventas totales: $${totalVentas.toFixed(2)}`)
     console.log(`      * Efectivo: $${totalVentasEfectivo.toFixed(2)}`)
-    console.log(`      * Tarjeta: $${totalVentasTarjeta.toFixed(2)}`)
+    console.log(`      * Tarjeta Crédito: $${totalVentasTarjetaCredito.toFixed(2)}`)
+    console.log(`      * Tarjeta Débito: $${totalVentasTarjetaDebito.toFixed(2)}`)
     console.log(`      * Transferencia: $${totalVentasTransferencia.toFixed(2)}`)
     console.log(`    - Pagos cuenta corriente: $${totalPagosCuentaCorriente.toFixed(2)}`)
     console.log(`    - Depósitos: $${totalDepositos.toFixed(2)}`)
@@ -300,6 +311,8 @@ export const getCurrentCashStatus = async (req, res) => {
 
         // Desglose de ventas por método (para referencia)
         ventas_efectivo: totalVentasEfectivo,
+        ventas_tarjeta_credito: totalVentasTarjetaCredito,
+        ventas_tarjeta_debito: totalVentasTarjetaDebito,
         ventas_tarjeta: totalVentasTarjeta,
         ventas_transferencia: totalVentasTransferencia,
         total_ventas: totalVentas,
@@ -483,7 +496,8 @@ export const closeCash = async (req, res) => {
     console.log(`📊 Recalculando totales para el cierre...`)
 
     let salesCash = 0,
-      salesCard = 0,
+      salesCardCredit = 0,
+      salesCardDebit = 0,
       salesTransfer = 0,
       salesAccountPayable = 0
     let depositsCash = 0
@@ -506,9 +520,11 @@ export const closeCash = async (req, res) => {
               physicalCashIncome += amount
               break
             case "tarjeta_credito":
-            case "tarjeta_debito":
             case "tarjeta":
-              salesCard += amount
+              salesCardCredit += amount
+              break
+            case "tarjeta_debito":
+              salesCardDebit += amount
               break
             case "transferencia":
             case "transfer":
@@ -531,9 +547,11 @@ export const closeCash = async (req, res) => {
                           physicalCashIncome += amt
                           break
                         case "tarjeta_credito":
-                        case "tarjeta_debito":
                         case "tarjeta":
-                          salesCard += amt
+                          salesCardCredit += amt
+                          break
+                        case "tarjeta_debito":
+                          salesCardDebit += amt
                           break
                         case "transferencia":
                         case "transfer":
@@ -593,10 +611,13 @@ export const closeCash = async (req, res) => {
               console.log(`💰 Cancelación efectivo en cierre: -${amount}`)
               break
             case "tarjeta_credito":
-            case "tarjeta_debito":
             case "tarjeta":
-              salesCard -= amount
-              console.log(`💳 Cancelación tarjeta en cierre: -${amount}`)
+              salesCardCredit -= amount
+              console.log(`💳 Cancelación tarjeta crédito en cierre: -${amount}`)
+              break
+            case "tarjeta_debito":
+              salesCardDebit -= amount
+              console.log(`💳 Cancelación tarjeta débito en cierre: -${amount}`)
               break
             case "transferencia":
             case "transfer":
@@ -617,9 +638,11 @@ export const closeCash = async (req, res) => {
                           physicalCashIncome -= amt
                           break
                         case "tarjeta_credito":
-                        case "tarjeta_debito":
                         case "tarjeta":
-                          salesCard -= amt
+                          salesCardCredit -= amt
+                          break
+                        case "tarjeta_debito":
+                          salesCardDebit -= amt
                           break
                         case "transferencia":
                         case "transfer":
@@ -638,7 +661,8 @@ export const closeCash = async (req, res) => {
       }
     }
 
-    const totalSales = salesCash + salesCard + salesTransfer + salesAccountPayable
+    const totalSalesCard = salesCardCredit + salesCardDebit
+    const totalSales = salesCash + totalSalesCard + salesTransfer + salesAccountPayable
     const totalIncome = totalSales + accountReceivablePayments + depositsCash
     const totalOutcome = totalWithdrawals + totalExpenses + totalCancellations
     const netProfit = totalIncome - totalOutcome
@@ -662,7 +686,8 @@ export const closeCash = async (req, res) => {
 
     console.log("📊 TOTALES EN CIERRE:")
     console.log(`  💵 Ventas Efectivo: $${salesCash}`)
-    console.log(`  💳 Ventas Tarjeta: $${salesCard}`)
+    console.log(`  💳 Ventas Tarjeta Crédito: $${salesCardCredit}`)
+    console.log(`  💳 Ventas Tarjeta Débito: $${salesCardDebit}`)
     console.log(`  🏦 Ventas Transferencia: $${salesTransfer}`)
     console.log(`  💰 Efectivo Físico Calculado: $${physicalCashIncome}`)
     console.log(`  💵 Efectivo Físico Contado: $${finalClosingAmount}`)
@@ -679,7 +704,9 @@ export const closeCash = async (req, res) => {
       totalGeneralCash,
       sales: {
         cash: salesCash,
-        card: salesCard,
+        card_credit: salesCardCredit,
+        card_debit: salesCardDebit,
+        card: totalSalesCard,
         transfer: salesTransfer,
         accountPayable: salesAccountPayable,
         total: totalSales,
@@ -1397,7 +1424,8 @@ export const getSummary = async (req, res) => {
     console.log(`📋 Total de movimientos: ${movements.length}`)
 
     let totalVentasEfectivo = 0
-    let totalVentasTarjeta = 0
+    let totalVentasTarjetaCredito = 0
+    let totalVentasTarjetaDebito = 0
     let totalVentasTransferencia = 0
     let totalPagosCuentaCorriente = 0
     let totalDepositos = 0
@@ -1426,9 +1454,11 @@ export const getSummary = async (req, res) => {
               efectivoFisico += absAmount
               break
             case "tarjeta_credito":
-            case "tarjeta_debito":
             case "tarjeta":
-              totalVentasTarjeta += absAmount
+              totalVentasTarjetaCredito += absAmount
+              break
+            case "tarjeta_debito":
+              totalVentasTarjetaDebito += absAmount
               break
             case "transferencia":
             case "transfer":
@@ -1451,9 +1481,11 @@ export const getSummary = async (req, res) => {
                           efectivoFisico += pmAmount
                           break
                         case "tarjeta_credito":
-                        case "tarjeta_debito":
                         case "tarjeta":
-                          totalVentasTarjeta += pmAmount
+                          totalVentasTarjetaCredito += pmAmount
+                          break
+                        case "tarjeta_debito":
+                          totalVentasTarjetaDebito += pmAmount
                           break
                         case "transferencia":
                         case "transfer":
@@ -1515,10 +1547,13 @@ export const getSummary = async (req, res) => {
               console.log(`💰 Cancelación efectivo: -$${absAmount} | Efectivo físico ahora: $${efectivoFisico}`)
               break
             case "tarjeta_credito":
-            case "tarjeta_debito":
             case "tarjeta":
-              totalVentasTarjeta -= absAmount
-              console.log(`💳 Cancelación tarjeta: -$${absAmount}`)
+              totalVentasTarjetaCredito -= absAmount
+              console.log(`💳 Cancelación tarjeta crédito: -$${absAmount}`)
+              break
+            case "tarjeta_debito":
+              totalVentasTarjetaDebito -= absAmount
+              console.log(`💳 Cancelación tarjeta débito: -$${absAmount}`)
               break
             case "transferencia":
             case "transfer":
@@ -1541,9 +1576,11 @@ export const getSummary = async (req, res) => {
                           efectivoFisico -= pmAmount
                           break
                         case "tarjeta_credito":
-                        case "tarjeta_debito":
                         case "tarjeta":
-                          totalVentasTarjeta -= pmAmount
+                          totalVentasTarjetaCredito -= pmAmount
+                          break
+                        case "tarjeta_debito":
+                          totalVentasTarjetaDebito -= pmAmount
                           break
                         case "transferencia":
                         case "transfer":
@@ -1563,6 +1600,7 @@ export const getSummary = async (req, res) => {
     }
 
     // Cálculos finales
+    const totalVentasTarjeta = totalVentasTarjetaCredito + totalVentasTarjetaDebito
     const totalVentas = totalVentasEfectivo + totalVentasTarjeta + totalVentasTransferencia
     const totalIngresosDia = totalVentas + totalPagosCuentaCorriente + totalDepositos
     const totalEgresosDia = totalGastos + totalRetiros + totalCancelaciones
@@ -1571,7 +1609,8 @@ export const getSummary = async (req, res) => {
 
     console.log("📊 TOTALES CALCULADOS:")
     console.log(`  💵 Total Ventas Efectivo: $${totalVentasEfectivo}`)
-    console.log(`  💳 Total Ventas Tarjeta: $${totalVentasTarjeta}`)
+    console.log(`  💳 Total Ventas Tarjeta Crédito: $${totalVentasTarjetaCredito}`)
+    console.log(`  💳 Total Ventas Tarjeta Débito: $${totalVentasTarjetaDebito}`)
     console.log(`  🏦 Total Ventas Transferencia: $${totalVentasTransferencia}`)
     console.log(`  📊 Total Ventas: $${totalVentas}`)
     console.log(`  💰 Efectivo Físico en Caja: $${efectivoFisico}`)
@@ -1598,6 +1637,8 @@ export const getSummary = async (req, res) => {
 
         // Desglose de ventas por método (para referencia)
         ventas_efectivo: totalVentasEfectivo,
+        ventas_tarjeta_credito: totalVentasTarjetaCredito,
+        ventas_tarjeta_debito: totalVentasTarjetaDebito,
         ventas_tarjeta: totalVentasTarjeta,
         ventas_transferencia: totalVentasTransferencia,
         total_ventas: totalVentas,
