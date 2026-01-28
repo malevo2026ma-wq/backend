@@ -97,7 +97,7 @@ export const validateUpdateCategory = [
   handleValidationErrors,
 ]
 
-// Validaciones para productos - CORREGIDAS
+// Validaciones para productos con precios duales
 export const validateCreateProduct = [
   body("name").trim().isLength({ min: 2, max: 200 }).withMessage("El nombre debe tener entre 2 y 200 caracteres"),
   body("description")
@@ -105,10 +105,13 @@ export const validateCreateProduct = [
     .trim()
     .isLength({ max: 1000 })
     .withMessage("La descripción no puede exceder 1000 caracteres"),
-  body("price").isFloat({ min: 0.01 }).withMessage("El precio debe ser mayor a 0"),
+  body("price_list").isFloat({ min: 0.01 }).withMessage("El precio de lista debe ser mayor a 0"),
+  body("price_cash").isFloat({ min: 0.01 }).withMessage("El precio de contado debe ser mayor a 0"),
   body("cost").optional().isFloat({ min: 0 }).withMessage("El costo no puede ser negativo"),
-  body("stock").optional().isFloat({ min: 0 }).withMessage("El stock no puede ser negativo"),
-  body("min_stock").optional().isFloat({ min: 0 }).withMessage("El stock mínimo no puede ser negativo"),
+  body("stock").optional().isInt({ min: 0 }).withMessage("El stock debe ser un número entero no negativo"),
+  body("min_stock").optional().isInt({ min: 0 }).withMessage("El stock mínimo debe ser un número entero no negativo"),
+  body("color").optional().trim().isLength({ max: 50 }).withMessage("El color no puede exceder 50 caracteres"),
+  body("size").optional().trim().isLength({ max: 50 }).withMessage("El talle no puede exceder 50 caracteres"),
   body("image")
     .optional({ checkFalsy: true })
     .custom((value) => {
@@ -132,9 +135,12 @@ export const validateUpdateProduct = [
     .trim()
     .isLength({ max: 1000 })
     .withMessage("La descripción no puede exceder 1000 caracteres"),
-  body("price").isFloat({ min: 0.01 }).withMessage("El precio debe ser mayor a 0"),
+  body("price_list").isFloat({ min: 0.01 }).withMessage("El precio de lista debe ser mayor a 0"),
+  body("price_cash").isFloat({ min: 0.01 }).withMessage("El precio de contado debe ser mayor a 0"),
   body("cost").optional().isFloat({ min: 0 }).withMessage("El costo no puede ser negativo"),
-  body("min_stock").optional().isFloat({ min: 0 }).withMessage("El stock mínimo no puede ser negativo"),
+  body("min_stock").optional().isInt({ min: 0 }).withMessage("El stock mínimo debe ser un número entero no negativo"),
+  body("color").optional().trim().isLength({ max: 50 }).withMessage("El color no puede exceder 50 caracteres"),
+  body("size").optional().trim().isLength({ max: 50 }).withMessage("El talle no puede exceder 50 caracteres"),
   body("image")
     .optional({ checkFalsy: true })
     .custom((value) => {

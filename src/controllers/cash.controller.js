@@ -806,7 +806,7 @@ export const closeCash = async (req, res) => {
       },
     })
   } catch (error) {
-    console.error("💥 Error cerrando caja:", error)
+    console.error("�� Error cerrando caja:", error)
     res.status(500).json({
       success: false,
       message: "Error al cerrar la caja",

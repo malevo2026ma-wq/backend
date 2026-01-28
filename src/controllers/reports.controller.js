@@ -109,16 +109,17 @@ export const getTopProducts = async (req, res) => {
         p.name,
         p.image,
         p.cost,
-        p.price,
+        p.price_list,
+        p.price_cash,
         SUM(si.quantity) as quantity,
         COUNT(DISTINCT s.id) as sales_count,
         COALESCE(SUM(si.subtotal), 0) as revenue,
-        ROUND(((p.price - COALESCE(p.cost, 0)) / p.price) * 100, 1) as margin
+        ROUND(((p.price_list - COALESCE(p.cost, 0)) / p.price_list) * 100, 1) as margin
       FROM sale_items si
       JOIN sales s ON si.sale_id = s.id
       JOIN products p ON si.product_id = p.id
       ${dateFilter}
-      GROUP BY p.id, p.name, p.image, p.cost, p.price
+      GROUP BY p.id, p.name, p.image, p.cost, p.price_list, p.price_cash
       ORDER BY quantity DESC
         LIMIT ${limit}
     `,
@@ -370,7 +371,8 @@ export const getInventoryReport = async (req, res) => {
         p.stock as currentStock,
         p.min_stock as minStock,
         c.name as category,
-        p.price,
+        p.price_list,
+        p.price_cash,
         p.cost,
         CASE 
           WHEN p.stock = 0 THEN 'critical'

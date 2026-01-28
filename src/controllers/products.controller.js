@@ -1,4 +1,5 @@
 import { executeQuery, executeTransaction } from "../config/database.js"
+import { cost } from "../config/constants.js" // Declare the cost variable
 
 // NUEVO: Obtener los 10 productos más vendidos para la interfaz de ventas
 export const getTopSellingProducts = async (req, res) => {
@@ -10,7 +11,8 @@ export const getTopSellingProducts = async (req, res) => {
         p.id,
         p.name,
         p.description,
-        p.price,
+        p.price_list,
+        p.price_cash,
         p.cost,
         p.stock,
         p.min_stock,
@@ -32,7 +34,7 @@ export const getTopSellingProducts = async (req, res) => {
       LEFT JOIN sale_items si ON p.id = si.product_id
       LEFT JOIN sales s ON si.sale_id = s.id AND s.status = 'completed'
       WHERE p.active = TRUE
-      GROUP BY p.id, p.name, p.description, p.price, p.cost, p.stock, 
+      GROUP BY p.id, p.name, p.description, p.price_list, p.price_cash, p.cost, p.stock, 
                p.min_stock, p.category_id, p.barcode, p.image, p.color, p.size,
                p.active, p.created_at, p.updated_at, c.name, c.color, c.icon
       ORDER BY total_sold DESC, sales_count DESC, p.name ASC
@@ -77,7 +79,8 @@ export const getProducts = async (req, res) => {
         p.id,
         p.name,
         p.description,
-        p.price,
+        p.price_list,
+        p.price_cash,
         p.cost,
         p.stock,
         p.min_stock,
@@ -145,14 +148,14 @@ export const getProducts = async (req, res) => {
       params.push(Number.parseFloat(maxStock))
     }
 
-    // Filtro por rango de precios
+    // Filtro por rango de precios (considera ambos precios)
     if (minPrice && !isNaN(Number.parseFloat(minPrice))) {
-      sql += ` AND p.price >= ?`
-      params.push(Number.parseFloat(minPrice))
+      sql += ` AND (p.price_list >= ? OR p.price_cash >= ?)`
+      params.push(Number.parseFloat(minPrice), Number.parseFloat(minPrice))
     }
     if (maxPrice && !isNaN(Number.parseFloat(maxPrice))) {
-      sql += ` AND p.price <= ?`
-      params.push(Number.parseFloat(maxPrice))
+      sql += ` AND (p.price_list <= ? OR p.price_cash <= ?)`
+      params.push(Number.parseFloat(maxPrice), Number.parseFloat(maxPrice))
     }
 
     // Ordenamiento optimizado
@@ -205,12 +208,12 @@ export const getProducts = async (req, res) => {
       countParams.push(Number.parseFloat(maxStock))
     }
     if (minPrice && !isNaN(Number.parseFloat(minPrice))) {
-      countSql += ` AND p.price >= ?`
-      countParams.push(Number.parseFloat(minPrice))
+      countSql += ` AND (p.price_list >= ? OR p.price_cash >= ?)`
+      countParams.push(Number.parseFloat(minPrice), Number.parseFloat(minPrice))
     }
     if (maxPrice && !isNaN(Number.parseFloat(maxPrice))) {
-      countSql += ` AND p.price <= ?`
-      countParams.push(Number.parseFloat(maxPrice))
+      countSql += ` AND (p.price_list <= ? OR p.price_cash <= ?)`
+      countParams.push(Number.parseFloat(maxPrice), Number.parseFloat(maxPrice))
     }
 
     // Ejecutar consultas en paralelo para mejor performance
@@ -412,7 +415,7 @@ export const getProductById = async (req, res) => {
 
 export const createProduct = async (req, res) => {
   try {
-    const { name, description, price, cost, stock, min_stock, category_id, barcode, image, color, size } = req.body
+    const { name, description, price_list, price_cash, cost, stock, min_stock, category_id, barcode, image, color, size } = req.body
 
     // Validaciones básicas
     if (!name || name.trim().length === 0) {
@@ -423,15 +426,24 @@ export const createProduct = async (req, res) => {
       })
     }
 
-    if (!price || isNaN(Number.parseFloat(price)) || Number.parseFloat(price) <= 0) {
+    if (!price_list || isNaN(Number.parseFloat(price_list)) || Number.parseFloat(price_list) <= 0) {
       return res.status(400).json({
         success: false,
-        message: "El precio debe ser un número válido mayor a 0",
-        code: "INVALID_PRICE",
+        message: "El precio de lista debe ser un número válido mayor a 0",
+        code: "INVALID_PRICE_LIST",
       })
     }
 
-    const productPrice = Number.parseFloat(price)
+    if (!price_cash || isNaN(Number.parseFloat(price_cash)) || Number.parseFloat(price_cash) <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "El precio de contado debe ser un número válido mayor a 0",
+        code: "INVALID_PRICE_CASH",
+      })
+    }
+
+    const productPriceList = Number.parseFloat(price_list)
+    const productPriceCash = Number.parseFloat(price_cash)
     const productCost = Number.parseFloat(cost) || 0
 
     let productStock = 0
@@ -510,15 +522,16 @@ export const createProduct = async (req, res) => {
 
     const insertSql = `
       INSERT INTO products (
-        name, description, price, cost, stock, min_stock, category_id, 
+        name, description, price_list, price_cash, cost, stock, min_stock, category_id, 
         barcode, image, color, size, active, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
     `
 
     const insertParams = [
       name.trim(),
       description?.trim() || null,
-      productPrice,
+      productPriceList,
+      productPriceCash,
       productCost,
       productStock,
       minStock,
@@ -572,7 +585,7 @@ export const createProduct = async (req, res) => {
 export const updateProduct = async (req, res) => {
   try {
     const { id } = req.params
-    const { name, description, price, cost, min_stock, category_id, barcode, image, active, color, size } = req.body
+    const { name, description, price_list, price_cash, min_stock, category_id, barcode, image, active, color, size } = req.body
 
     if (!id || isNaN(Number.parseInt(id))) {
       return res.status(400).json({
@@ -599,15 +612,24 @@ export const updateProduct = async (req, res) => {
       })
     }
 
-    if (!price || isNaN(Number.parseFloat(price)) || Number.parseFloat(price) <= 0) {
+    if (!price_list || isNaN(Number.parseFloat(price_list)) || Number.parseFloat(price_list) <= 0) {
       return res.status(400).json({
         success: false,
-        message: "El precio debe ser un número válido mayor a 0",
-        code: "INVALID_PRICE",
+        message: "El precio de lista debe ser un número válido mayor a 0",
+        code: "INVALID_PRICE_LIST",
       })
     }
 
-    const productPrice = Number.parseFloat(price)
+    if (!price_cash || isNaN(Number.parseFloat(price_cash)) || Number.parseFloat(price_cash) <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "El precio de contado debe ser un número válido mayor a 0",
+        code: "INVALID_PRICE_CASH",
+      })
+    }
+
+    const productPriceList = Number.parseFloat(price_list)
+    const productPriceCash = Number.parseFloat(price_cash)
     const productCost = Number.parseFloat(cost) || 0
 
     let minStock = existingProduct[0].min_stock
@@ -675,7 +697,7 @@ export const updateProduct = async (req, res) => {
 
     const updateSql = `
       UPDATE products 
-      SET name = ?, description = ?, price = ?, cost = ?, min_stock = ?, 
+      SET name = ?, description = ?, price_list = ?, price_cash = ?, cost = ?, min_stock = ?, 
           category_id = ?, barcode = ?, image = ?, color = ?, size = ?, active = ?, updated_at = NOW()
       WHERE id = ?
     `
@@ -683,7 +705,8 @@ export const updateProduct = async (req, res) => {
     const updateParams = [
       name.trim(),
       description?.trim() || null,
-      productPrice,
+      productPriceList,
+      productPriceCash,
       productCost,
       minStock,
       productCategoryId,
@@ -895,10 +918,7 @@ export const createStockMovement = async (req, res) => {
     const queries = []
 
     queries.push({
-      query: `
-        INSERT INTO stock_movements (product_id, type, quantity, previous_stock, new_stock, reason, user_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `,
+      query: `INSERT INTO stock_movements (product_id, type, quantity, previous_stock, new_stock, reason, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)`,
       params: [productId, type, stockChange, previousStock, newStock, reason.trim(), req.user?.id || null],
     })
 
@@ -911,15 +931,7 @@ export const createStockMovement = async (req, res) => {
     const movementId = results[0].insertId
 
     const newMovement = await executeQuery(
-      `SELECT 
-        sm.*,
-      p.name as product_name,
-      p.image as product_image,
-      u.name as user_name
-      FROM stock_movements sm
-      LEFT JOIN products p ON sm.product_id = p.id
-      LEFT JOIN users u ON sm.user_id = u.id
-      WHERE sm.id = ?`,
+      `SELECT sm.*, p.name as product_name, p.image as product_image, u.name as user_name FROM stock_movements sm LEFT JOIN products p ON sm.product_id = p.id LEFT JOIN users u ON sm.user_id = u.id WHERE sm.id = ?`,
       [movementId],
     )
 
@@ -940,34 +952,7 @@ export const createStockMovement = async (req, res) => {
 
 export const getStockAlerts = async (req, res) => {
   try {
-    const sql = `
-      SELECT 
-        p.id,
-      p.name,
-      p.stock,
-      p.min_stock,
-      c.name as category_name,
-        CASE 
-          WHEN p.stock = 0 THEN 'critical'
-          WHEN p.stock <= COALESCE(p.min_stock, 10) THEN 'warning'
-          WHEN p.stock <= (COALESCE(p.min_stock, 10) * 1.5) THEN 'low'
-          ELSE 'normal'
-        END as level
-      FROM products p
-      LEFT JOIN categories c ON p.category_id = c.id
-      WHERE p.active = TRUE 
-        AND p.stock <= COALESCE(p.min_stock, 10)
-        AND COALESCE(p.min_stock, 10) > 0
-      ORDER BY 
-        CASE 
-          WHEN p.stock = 0 THEN 1
-          WHEN p.stock <= COALESCE(p.min_stock, 10) THEN 2
-          WHEN p.stock <= (COALESCE(p.min_stock, 10) * 1.5) THEN 3
-          ELSE 4
-        END,
-        p.stock ASC, 
-        p.name ASC
-    `
+    const sql = `SELECT p.id, p.name, p.stock, p.min_stock, c.name as category_name, CASE WHEN p.stock = 0 THEN 'critical' WHEN p.stock <= COALESCE(p.min_stock, 10) THEN 'warning' WHEN p.stock <= (COALESCE(p.min_stock, 10) * 1.5) THEN 'low' ELSE 'normal' END as level FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE p.active = TRUE AND p.stock <= COALESCE(p.min_stock, 10) AND COALESCE(p.min_stock, 10) > 0 ORDER BY CASE WHEN p.stock = 0 THEN 1 WHEN p.stock <= COALESCE(p.min_stock, 10) THEN 2 WHEN p.stock <= (COALESCE(p.min_stock, 10) * 1.5) THEN 3 ELSE 4 END, p.stock ASC, p.name ASC`
 
     const alerts = await executeQuery(sql)
 
@@ -987,49 +972,11 @@ export const getStockAlerts = async (req, res) => {
 
 export const getStockStats = async (req, res) => {
   try {
-    const generalStats = await executeQuery(`SELECT 
-      COUNT(*) as total_products,
-      SUM(CASE WHEN active = TRUE THEN 1 ELSE 0 END) as active_products,
-      SUM(CASE WHEN active = TRUE AND stock <= min_stock THEN 1 ELSE 0 END) as low_stock,
-      SUM(CASE WHEN active = TRUE AND stock = 0 THEN 1 ELSE 0 END) as out_of_stock,
-      COALESCE(SUM(CASE WHEN active = TRUE THEN stock * price ELSE 0 END), 0) as total_inventory_value
-    FROM products`)
+    const generalStats = await executeQuery(`SELECT COUNT(*) as total_products, SUM(CASE WHEN active = TRUE THEN 1 ELSE 0 END) as active_products, SUM(CASE WHEN active = TRUE AND stock <= min_stock THEN 1 ELSE 0 END) as low_stock, SUM(CASE WHEN active = TRUE AND stock = 0 THEN 1 ELSE 0 END) as out_of_stock, COALESCE(SUM(CASE WHEN active = TRUE THEN stock * price_list ELSE 0 END), 0) as total_inventory_value FROM products`)
 
-    const monthlyMovements = await executeQuery(`SELECT 
-      type,
-      COUNT(*) as count,
-      SUM(ABS(quantity)) as total_quantity
-    FROM stock_movements 
-    WHERE MONTH(created_at) = MONTH(CURRENT_DATE()) 
-      AND YEAR(created_at) = YEAR(CURRENT_DATE())
-    GROUP BY type`)
+    const monthlyMovements = await executeQuery(`SELECT type, COUNT(*) as count, SUM(ABS(quantity)) as total_quantity FROM stock_movements WHERE MONTH(created_at) = MONTH(CURRENT_DATE()) AND YEAR(created_at) = YEAR(CURRENT_DATE()) GROUP BY type`)
 
-    const lowStockProducts = await executeQuery(`SELECT 
-      p.id,
-      p.name,
-      p.stock,
-      COALESCE(p.min_stock, 10) as min_stock,
-      c.name as category_name,
-      CASE 
-        WHEN p.stock = 0 THEN 'critical'
-        WHEN p.stock <= COALESCE(p.min_stock, 10) THEN 'warning'
-        WHEN p.stock <= (COALESCE(p.min_stock, 10) * 1.5) THEN 'low'
-        ELSE 'normal'
-      END as level
-    FROM products p
-    LEFT JOIN categories c ON p.category_id = c.id
-    WHERE p.active = TRUE 
-      AND p.stock <= COALESCE(p.min_stock, 10)
-      AND COALESCE(p.min_stock, 10) > 0
-    ORDER BY 
-      CASE 
-        WHEN p.stock = 0 THEN 1
-        WHEN p.stock <= COALESCE(p.min_stock, 10) THEN 2
-        WHEN p.stock <= (COALESCE(p.min_stock, 10) * 1.5) THEN 3
-        ELSE 4
-      END,
-      p.stock ASC
-    LIMIT 10`)
+    const lowStockProducts = await executeQuery(`SELECT p.id, p.name, p.stock, COALESCE(p.min_stock, 10) as min_stock, c.name as category_name, CASE WHEN p.stock = 0 THEN 'critical' WHEN p.stock <= COALESCE(p.min_stock, 10) THEN 'warning' WHEN p.stock <= (COALESCE(p.min_stock, 10) * 1.5) THEN 'low' ELSE 'normal' END as level FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE p.active = TRUE AND p.stock <= COALESCE(p.min_stock, 10) AND COALESCE(p.min_stock, 10) > 0 ORDER BY CASE WHEN p.stock = 0 THEN 1 WHEN p.stock <= COALESCE(p.min_stock, 10) THEN 2 WHEN p.stock <= (COALESCE(p.min_stock, 10) * 1.5) THEN 3 ELSE 4 END, p.stock ASC LIMIT 10`)
 
     res.json({
       success: true,

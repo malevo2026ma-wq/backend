@@ -836,15 +836,16 @@ export const createSale = async (req, res) => {
       const itemQuery = {
         query: `
         INSERT INTO sale_items (
-          sale_id, product_id, quantity, unit_price, subtotal, created_at
-        ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          sale_id, product_id, quantity, unit_price, subtotal, price_type, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       `,
         params: [
           saleId,
           Number.parseInt(item.product_id),
-          Number.parseFloat(item.quantity), // CORREGIDO: parseFloat
+          Number.parseInt(item.quantity), // Solo enteros
           Number.parseFloat(item.unit_price),
-          Number.parseFloat(item.quantity) * Number.parseFloat(item.unit_price),
+          Number.parseInt(item.quantity) * Number.parseFloat(item.unit_price),
+          item.price_type || 'cash', // 'cash' o 'list'
         ],
       }
       queries.push(itemQuery)
