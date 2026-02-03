@@ -366,9 +366,10 @@ export const validateAccountTransaction = [
   body("type").isIn(["venta", "pago", "ajuste_debito", "ajuste_credito"]).withMessage("Tipo de transacción inválido"),
   body("amount").isFloat({ min: 0.01 }).withMessage("El monto debe ser mayor a 0"),
   body("description")
+    .optional({ checkFalsy: true })
     .trim()
-    .isLength({ min: 5, max: 500 })
-    .withMessage("La descripción debe tener entre 5 y 500 caracteres"),
+    .isLength({ max: 500 })
+    .withMessage("La descripción no puede exceder 500 caracteres"),
   body("reference")
     .optional({ checkFalsy: true })
     .trim()

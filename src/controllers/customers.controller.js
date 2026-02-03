@@ -740,13 +740,6 @@ export const createAccountTransaction = async (req, res) => {
       })
     }
 
-    if (!description || description.trim().length < 5) {
-      return res.status(400).json({
-        success: false,
-        message: "La descripción debe tener al menos 5 caracteres",
-        code: "INVALID_DESCRIPTION",
-      })
-    }
 
     // CRÍTICO: Verificar que el cliente existe y obtener información completa
     const customer = await executeQuery(
@@ -803,17 +796,18 @@ export const createAccountTransaction = async (req, res) => {
     // CORREGIDO: Crear la transacción correctamente
     console.log("💾 Creando transacción en base de datos...")
 
+    const descriptionValue = description?.trim() || ""
+
     const transactionResult = await executeQuery(
       `INSERT INTO customer_transactions (
-    customer_id, type, amount, description, reference, payment_method, user_id, created_at
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+    customer_id, type, amount, description, reference, user_id, created_at
+  ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
       [
         Number.parseInt(customer_id),
         type,
         transactionAmount,
-        description.trim(),
+        descriptionValue,
         reference?.trim() || null,
-        type === "pago" ? payment_method : null, // Solo guardar método de pago para pagos
         userId,
       ]
     )
@@ -830,7 +824,7 @@ export const createAccountTransaction = async (req, res) => {
           transactionAmount,
           payment_method,
           userId,
-          `Pago cuenta corriente (${payment_method}): ${customerData.name} - ${description.trim()}`,
+          `Pago cuenta corriente (${payment_method}): ${customerData.name}${descriptionValue ? ` - ${descriptionValue}` : ""}`,
         )
         console.log("✅ Resultado registro en caja:", cashRegistrationResult)
       } catch (cashError) {
