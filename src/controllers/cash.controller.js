@@ -767,7 +767,7 @@ export const closeCash = async (req, res) => {
         req.user?.id || null,
         totalSales,
         salesCash,
-        salesCard,
+        totalSalesCard,
         salesTransfer,
         depositsCash + accountReceivablePayments,
         totalWithdrawals,
