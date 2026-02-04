@@ -584,7 +584,7 @@ export const createProduct = async (req, res) => {
 export const updateProduct = async (req, res) => {
   try {
     const { id } = req.params
-    const { name, description, price_list, price_cash, min_stock, category_id, barcode, image, active, color, size } = req.body
+    const { name, description, price_list, price_cash, cost, min_stock, category_id, barcode, image, active, color, size } = req.body
 
     if (!id || isNaN(Number.parseInt(id))) {
       return res.status(400).json({
@@ -629,7 +629,10 @@ export const updateProduct = async (req, res) => {
 
     const productPriceList = Number.parseFloat(price_list)
     const productPriceCash = Number.parseFloat(price_cash)
-    const productCost = Number.parseFloat(cost) || 0
+    const rawCost = cost !== undefined && cost !== null && cost !== ""
+      ? Number.parseFloat(cost)
+      : (Number.parseFloat(existingProduct[0].cost) || 0)
+    const productCost = Number.isFinite(rawCost) ? rawCost : (Number.parseFloat(existingProduct[0].cost) || 0)
 
     let minStock = existingProduct[0].min_stock
 
